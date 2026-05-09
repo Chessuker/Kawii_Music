@@ -6,7 +6,7 @@
     let allArtists: any[] = $state([]);
     let loading = $state(true);
 
-    // State สำหรับฟอร์ม (Modal)
+    // State for Modal
     let isModalOpen = $state(false);
     let isEditing = $state(false);
     let isSaving = $state(false);
@@ -34,7 +34,6 @@
 
     async function fetchArtists() {
         try {
-            // ดึงรายชื่อศิลปินทั้งหมดมาใช้เป็น Checkbox ในการผูกสินค้า
             const res = await fetch('http://127.0.0.1:8787/api/metadata');
             const data = await res.json();
             if (data.success) allArtists = data.artists;
@@ -70,7 +69,7 @@
     async function handleSave(e: Event) {
         e.preventDefault();
         isSaving = true;
-        const adminId = adminAuthState.currentAdmin?.id; // ในระบบจริงดึงจาก authState
+        const adminId = adminAuthState.currentAdmin?.id;
 
         const payload = {
             name: formData.name,
@@ -91,19 +90,19 @@
             });
             const data = await res.json();
             if (data.success) {
-                await fetchMerch(); // โหลดข้อมูลใหม่
+                await fetchMerch();
                 isModalOpen = false;
             } else {
                 alert(data.error);
             }
-        } catch (err) { alert("เกิดข้อผิดพลาด"); }
+        } catch (err) { alert("An error occurred"); }
         isSaving = false;
     }
 
     async function handleDelete(itemId: string) {
-        if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการลบสินค้านี้?")) return;
+        if (!confirm("Are you sure you want to delete this item?")) return;
 
-        const adminId = "YOUR_ADMIN_UUID";
+        const adminId = adminAuthState.currentAdmin?.id;
         try {
             const res = await fetch(`http://127.0.0.1:8787/api/admin/merch/${itemId}`, {
                 method: 'DELETE',
@@ -114,61 +113,85 @@
             if (data.success) {
                 merchItems = merchItems.filter(item => item.id !== itemId);
             } else {
-                // แจ้งเตือนถัดจับ RESTRICT Constraint จาก Database
                 alert("❌ " + data.error); 
             }
-        } catch (err) { alert("เกิดข้อผิดพลาดในการเชื่อมต่อ"); }
+        } catch (err) { alert("Connection error occurred"); }
     }
 </script>
 
-<main class="admin-container">
-    <nav style="margin-bottom: 2rem;"><a href="/admin" class="back-link">← กลับหน้า Dashboard</a></nav>
+<div class="max-w-6xl mx-auto flex flex-col gap-10">
+    <nav>
+        <a href="/admin" class="text-primary hover:underline font-bold flex items-center gap-2">
+            <span>&lsaquo;</span> Back to Dashboard
+        </a>
+    </nav>
     
-    <header style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+    <header class="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-            <h1>🛍️ จัดการสินค้า (Merch CMS)</h1>
-            <p>เพิ่ม แก้ไข หรือลบ สินค้าที่ระลึกของศิลปิน</p>
+            <h1 class="text-4xl font-black tracking-tight mb-2">🛍️ Store Management</h1>
+            <p class="text-text-muted font-medium">Create, edit, or remove artist merchandise</p>
         </div>
-        <button class="add-btn" onclick={() => openModal()}>+ เพิ่มสินค้าใหม่</button>
+        <button 
+            class="bg-primary hover:bg-primary-hover text-black px-8 py-3 rounded-full font-black text-lg shadow-xl hover:scale-105 active:scale-95 transition-all" 
+            onclick={() => openModal()}
+        >
+            + Add New Item
+        </button>
     </header>
 
     {#if loading}
-        <p style="text-align: center; color: #888; padding: 3rem;">กำลังโหลดข้อมูล...</p>
+        <div class="flex justify-center items-center h-64">
+            <p class="text-text-muted animate-pulse font-bold text-xl">Loading products...</p>
+        </div>
     {:else}
-        <div class="table-wrapper">
-            <table>
+        <div class="bg-bg-elevated rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
+            <table class="w-full border-collapse text-left">
                 <thead>
-                    <tr>
-                        <th width="80">รูปภาพ</th>
-                        <th>ชื่อสินค้า</th>
-                        <th>ศิลปิน</th>
-                        <th>ราคา (บาท)</th>
-                        <th width="150">จัดการ</th>
+                    <tr class="bg-bg-highlight/50 text-xs font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+                        <th class="p-6 w-24">Image</th>
+                        <th class="p-6">Product Name</th>
+                        <th class="p-6">Artists</th>
+                        <th class="p-6">Price</th>
+                        <th class="p-6 text-right">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="divide-y divide-white/5">
                     {#each merchItems as item}
-                        <tr>
-                            <td>
-                                <div class="img-preview">
+                        <tr class="hover:bg-white/5 transition-colors">
+                            <td class="p-6">
+                                <div class="w-16 h-16 bg-bg-highlight rounded-lg overflow-hidden flex items-center justify-center border border-white/5">
                                     {#if item.imgUrl || item.img_url}
-                                        <img src={item.imgUrl || item.img_url} alt="Item" />
+                                        <img src={item.imgUrl || item.img_url} alt="Item" class="w-full h-full object-cover" />
                                     {:else}
-                                        <span>📷</span>
+                                        <span class="text-2xl opacity-30">📷</span>
                                     {/if}
                                 </div>
                             </td>
-                            <td><strong>{item.name}</strong></td>
-                            <td style="color: #666; font-size: 0.9em;">
-                                {item.artists?.map((a:any) => a.name).join(', ') || '-'}
+                            <td class="p-6">
+                                <span class="font-bold text-white text-lg">{item.name}</span>
                             </td>
-                            <td style="color: #1db954; font-weight: bold;">
-                                ฿{Number(item.price).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            <td class="p-6">
+                                <span class="text-sm text-text-muted">
+                                    {item.artists?.map((a:any) => a.name).join(', ') || '-'}
+                                </span>
                             </td>
-                            <td>
-                                <div class="action-btns">
-                                    <button class="edit-btn" onclick={() => openModal(item)}>✏️</button>
-                                    <button class="delete-btn" onclick={() => handleDelete(item.id)}>🗑️</button>
+                            <td class="p-6 font-black text-primary text-lg">
+                                ฿{Number(item.price).toLocaleString()}
+                            </td>
+                            <td class="p-6 text-right">
+                                <div class="flex justify-end gap-3">
+                                    <button 
+                                        class="w-10 h-10 rounded-full bg-bg-highlight hover:bg-indigo-500 hover:text-white flex items-center justify-center transition-all border border-white/5" 
+                                        onclick={() => openModal(item)}
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button 
+                                        class="w-10 h-10 rounded-full bg-bg-highlight hover:bg-red-500 hover:text-white flex items-center justify-center transition-all border border-white/5" 
+                                        onclick={() => handleDelete(item.id)}
+                                    >
+                                        🗑️
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -177,99 +200,58 @@
             </table>
         </div>
     {/if}
-</main>
+</div>
 
 {#if isModalOpen}
-    <div class="modal-backdrop" onclick={() => isModalOpen = false}>
-        <div class="modal-content" onclick={(e) => e.stopPropagation()}>
-            <div class="modal-header">
-                <h2>{isEditing ? 'แก้ไขสินค้า' : 'เพิ่มสินค้าใหม่'}</h2>
-                <button class="close-btn" onclick={() => isModalOpen = false}>✕</button>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[1000] p-4" onclick={() => isModalOpen = false}>
+        <div class="bg-bg-elevated w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden border border-white/10 animate-in zoom-in duration-200" onclick={(e) => e.stopPropagation()}>
+            <div class="flex justify-between items-center p-8 border-b border-white/5">
+                <h2 class="text-2xl font-black">{isEditing ? 'Edit Product' : 'Add New Product'}</h2>
+                <button class="text-text-muted hover:text-white text-2xl" onclick={() => isModalOpen = false}>✕</button>
             </div>
             
-            <form onsubmit={handleSave} class="modal-body">
-                <div class="form-group">
-                    <label>ชื่อสินค้า *</label>
-                    <input type="text" bind:value={formData.name} required placeholder="เช่น เสื้อยืดลายเซ็นศิลปิน" />
+            <form onsubmit={handleSave} class="p-8 flex flex-col gap-6">
+                <div class="flex flex-col gap-2">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Product Name *</label>
+                    <input type="text" bind:value={formData.name} required placeholder="e.g. Artist Autographed T-Shirt" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
                 
-                <div class="form-group">
-                    <label>ราคา (บาท) *</label>
-                    <input type="number" step="0.01" min="0" bind:value={formData.price} required placeholder="0.00" />
+                <div class="flex flex-col gap-2">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Price (THB) *</label>
+                    <input type="number" step="0.01" min="0" bind:value={formData.price} required placeholder="0.00" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
 
-                <div class="form-group">
-                    <label>URL รูปภาพสินค้า</label>
-                    <input type="url" bind:value={formData.imgUrl} placeholder="https://..." />
+                <div class="flex flex-col gap-2">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Image URL</label>
+                    <input type="url" bind:value={formData.imgUrl} placeholder="https://..." class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
 
-                <div class="form-group">
-                    <label>ผูกกับศิลปิน (เลือกได้มากกว่า 1)</label>
-                    <div class="artist-checkbox-group">
+                <div class="flex flex-col gap-2">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Link to Artists</label>
+                    <div class="max-h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
                         {#each allArtists as artist}
-                            <label class="checkbox-label">
+                            <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
                                 <input 
                                     type="checkbox" 
                                     checked={formData.selectedArtistIds.includes(artist.id)}
                                     onchange={() => toggleArtistSelection(artist.id)}
+                                    class="rounded border-gray-600 bg-bg-elevated text-primary focus:ring-primary"
                                 />
-                                {artist.name}
+                                <span class="text-sm font-medium">{artist.name}</span>
                             </label>
                         {/each}
                     </div>
                 </div>
 
-                <div class="modal-footer">
-                    <button type="button" class="cancel-btn" onclick={() => isModalOpen = false}>ยกเลิก</button>
-                    <button type="submit" class="save-btn" disabled={isSaving}>
-                        {isSaving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                <div class="flex justify-end gap-4 mt-4">
+                    <button type="button" class="px-8 py-3 rounded-full font-black text-sm bg-bg-highlight text-white hover:bg-bg-surface transition-all" onclick={() => isModalOpen = false}>Cancel</button>
+                    <button type="submit" class="px-10 py-3 rounded-full font-black text-sm bg-primary text-black hover:scale-105 active:scale-95 transition-all disabled:opacity-50" disabled={isSaving}>
+                        {isSaving ? 'Saving...' : 'Save Product'}
                     </button>
                 </div>
             </form>
         </div>
     </div>
 {/if}
-
-<style>
-    .admin-container { padding: 2rem; max-width: 1200px; margin: 0 auto; font-family: sans-serif; color: #333; }
-    .back-link { color: #1db954; text-decoration: none; font-weight: bold; }
-    h1 { margin: 0 0 0.5rem 0; color: #1db954; font-size: 2.2rem; }
-    header p { color: #666; margin: 0; }
-    
-    .add-btn { background: #1db954; color: white; border: none; padding: 12px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(29, 185, 84, 0.3); transition: transform 0.1s; }
-    .add-btn:active { transform: scale(0.95); }
-
-    .table-wrapper { background: #fff; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #eee; }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th { background: #f8f9fa; padding: 1.2rem 1rem; color: #555; border-bottom: 2px solid #eee; }
-    td { padding: 1rem; border-bottom: 1px solid #eee; vertical-align: middle; }
-    
-    .img-preview { width: 50px; height: 50px; background: #eee; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .img-preview img { width: 100%; height: 100%; object-fit: cover; }
-    
-    .action-btns { display: flex; gap: 10px; }
-    .action-btns button { border: none; background: #f0f0f0; border-radius: 6px; padding: 8px 12px; cursor: pointer; transition: background 0.2s; }
-    .edit-btn:hover { background: #fbbf24; }
-    .delete-btn:hover { background: #ef4444; color: white; }
-
-    /* Modal Styles */
-    .modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-    .modal-content { background: white; width: 100%; max-width: 500px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem; border-bottom: 1px solid #eee; }
-    .modal-header h2 { margin: 0; font-size: 1.5rem; color: #333; }
-    .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #888; }
-    
-    .modal-body { padding: 1.5rem; }
-    .form-group { margin-bottom: 1.5rem; }
-    .form-group label { display: block; font-weight: bold; margin-bottom: 0.5rem; color: #555; font-size: 0.9em; }
-    .form-group input[type="text"], .form-group input[type="number"], .form-group input[type="url"] { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 1em; }
-    
-    .artist-checkbox-group { max-height: 150px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 6px; background: #fafafa; display: flex; flex-direction: column; gap: 8px; }
-    .checkbox-label { display: flex; align-items: center; gap: 10px; font-size: 0.9em; cursor: pointer; color: #444; }
-    
-    .modal-footer { display: flex; justify-content: flex-end; gap: 15px; margin-top: 2rem; }
-    .modal-footer button { padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; }
-    .cancel-btn { background: #eee; color: #555; }
-    .save-btn { background: #1db954; color: white; }
-    .save-btn:disabled { opacity: 0.5; }
-</style>

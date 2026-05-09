@@ -16,7 +16,6 @@
         loading = false;
     });
 
-    // Helper เพื่อแสดงเหรียญรางวัลสำหรับ Top 3
     function getRankMedal(index: number) {
         if (index === 0) return '🥇';
         if (index === 1) return '🥈';
@@ -25,99 +24,49 @@
     }
 </script>
 
-<main class="ranking-container">
-    <nav style="margin-bottom: 2rem;">
-        <a href="/admin" class="back-link">← กลับหน้า Dashboard</a>
+<div class="max-w-4xl mx-auto flex flex-col gap-10">
+    <nav>
+        <a href="/admin" class="text-primary hover:underline font-bold flex items-center gap-2">
+            <span>&lsaquo;</span> Back to Dashboard
+        </a>
     </nav>
     
     <header>
-        <h1>🏆 จัดอันดับศิลปินยอดนิยม</h1>
-        <p>วิเคราะห์กระแสตอบรับและจำนวนผู้ติดตามของศิลปิน (Top 20)</p>
+        <h1 class="text-4xl font-black tracking-tight mb-2">🏆 Artist Leaderboard</h1>
+        <p class="text-text-muted font-medium">Analyzing popularity and follower growth (Top 20)</p>
     </header>
 
     {#if loading}
-        <div class="status">กำลังประมวลผลข้อมูล...</div>
+        <div class="flex justify-center items-center h-64">
+            <p class="text-text-muted animate-pulse font-bold text-xl">Calculating rankings...</p>
+        </div>
     {:else if topArtists.length === 0}
-        <div class="status">ยังไม่มีข้อมูลศิลปินในระบบ</div>
+        <div class="text-center py-20 text-text-muted italic">No artist data found in the system.</div>
     {:else}
-        <div class="leaderboard">
+        <div class="flex flex-col gap-4">
             {#each topArtists as artist, i}
-                <div class="rank-card" class:top-three={i < 3}>
-                    <div class="rank-number" class:gold={i === 0} class:silver={i === 1} class:bronze={i === 2}>
+                <div class="group flex items-center bg-bg-elevated hover:bg-bg-highlight p-6 rounded-2xl transition-all duration-300 border border-white/5 shadow-xl {i < 3 ? 'border-l-4' : ''}" 
+                    style="border-left-color: {i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : 'transparent'}">
+                    
+                    <div class="w-16 text-center font-black text-2xl {i === 0 ? 'text-yellow-400' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-700' : 'text-text-muted/40'}">
                         {getRankMedal(i)}
                     </div>
                     
-                    <div class="artist-avatar">
+                    <div class="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-indigo-900 flex items-center justify-center text-white font-black text-2xl shadow-2xl mr-6 shrink-0 group-hover:scale-105 transition-transform">
                         {artist.name.charAt(0).toUpperCase()}
                     </div>
                     
-                    <div class="artist-info">
-                        <h2>{artist.name}</h2>
+                    <div class="flex-1 min-w-0">
+                        <h2 class="text-xl font-black text-white group-hover:text-primary transition-colors truncate">{artist.name}</h2>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-text-muted mt-1">Verified Artist</p>
                     </div>
                     
-                    <div class="follower-count">
-                        <span class="count-number">{artist.followerCount.toLocaleString()}</span>
-                        <span class="count-label">ผู้ติดตาม</span>
+                    <div class="text-right">
+                        <span class="block text-2xl font-black text-primary leading-none">{artist.followerCount.toLocaleString()}</span>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-text-muted">Followers</span>
                     </div>
                 </div>
             {/each}
         </div>
     {/if}
-</main>
-
-<style>
-    .ranking-container { padding: 2rem; max-width: 900px; margin: 0 auto; font-family: sans-serif; color: #333; }
-    .back-link { color: #1db954; text-decoration: none; font-weight: bold; background: #e8f5e9; padding: 8px 15px; border-radius: 8px; }
-    .back-link:hover { background: #c8e6c9; }
-    
-    h1 { margin: 0 0 0.5rem 0; color: #1db954; font-size: 2.2rem; }
-    header p { color: #666; margin: 0 0 2rem 0; font-size: 1.1em; }
-    
-    .status { text-align: center; padding: 4rem; color: #888; background: #f8f9fa; border-radius: 12px; border: 1px dashed #ccc; }
-
-    .leaderboard { display: flex; flex-direction: column; gap: 15px; }
-    
-    .rank-card {
-        display: flex;
-        align-items: center;
-        background: #fff;
-        padding: 15px 25px;
-        border-radius: 12px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.03);
-        border: 1px solid #f0f0f0;
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .rank-card:hover {
-        transform: scale(1.01);
-        box-shadow: 0 6px 15px rgba(0,0,0,0.08);
-    }
-    
-    /* สไตล์พิเศษสำหรับ Top 3 */
-    .rank-card.top-three { border: 1px solid #eee; }
-    .rank-card.top-three:nth-child(1) { background: linear-gradient(90deg, #fffbee, #fff); border-left: 5px solid #fbbf24; }
-    .rank-card.top-three:nth-child(2) { background: linear-gradient(90deg, #f8fafc, #fff); border-left: 5px solid #94a3b8; }
-    .rank-card.top-three:nth-child(3) { background: linear-gradient(90deg, #fff7ed, #fff); border-left: 5px solid #b45309; }
-
-    .rank-number { width: 50px; font-size: 1.5rem; font-weight: bold; color: #999; text-align: center; }
-    .rank-number.gold { font-size: 2rem; color: #fbbf24; }
-    .rank-number.silver { font-size: 2rem; color: #94a3b8; }
-    .rank-number.bronze { font-size: 2rem; color: #b45309; }
-
-    .artist-avatar {
-        width: 50px; height: 50px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #1db954, #1976d2);
-        color: white;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 1.5rem; font-weight: bold;
-        margin-right: 20px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-    }
-
-    .artist-info { flex: 1; }
-    .artist-info h2 { margin: 0; font-size: 1.2rem; color: #222; }
-
-    .follower-count { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
-    .count-number { font-size: 1.5rem; font-weight: bold; color: #1db954; line-height: 1; }
-    .count-label { font-size: 0.85rem; color: #888; margin-top: 5px; }
-</style>
+</div>

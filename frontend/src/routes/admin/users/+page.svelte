@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import import { adminAuthState } from '$lib/adminAuth.svelte';;
+    import { adminAuthState } from '$lib/adminAuth.svelte';
 
     let allUsers: any[] = $state([]);
     let loading = $state(true);
@@ -20,7 +20,6 @@
     }
 
     async function updateStatus(userId: string, newStatus: string) {
-        // ต้องมี Admin Login (สมมติว่าคุณเก็บ adminId ไว้ในระบบ)
         const adminId = adminAuthState.currentAdmin?.id;
         
         processingId = userId;
@@ -32,62 +31,75 @@
             });
             const data = await res.json();
             if (data.success) {
-                // อัปเดต UI ทันที
                 allUsers = allUsers.map(u => u.id === userId ? { ...u, accountStatus: newStatus } : u);
             }
-        } catch (e) { alert("เกิดข้อผิดพลาด"); }
+        } catch (e) { alert("An error occurred"); }
         processingId = null;
     }
 </script>
 
-<main class="admin-user-container">
-    <nav style="margin-bottom: 2rem;"><a href="/admin" style="color: #1db954; font-weight: bold;">← กลับหน้า Dashboard</a></nav>
+<div class="max-w-6xl mx-auto flex flex-col gap-10">
+    <nav>
+        <a href="/admin" class="text-primary hover:underline font-bold flex items-center gap-2">
+            <span>&lsaquo;</span> Back to Dashboard
+        </a>
+    </nav>
     
     <header>
-        <h1>👤 จัดการผู้ใช้งาน</h1>
-        <p>ตรวจสอบและควบคุมสถานะบัญชีสมาชิกในระบบ</p>
+        <h1 class="text-4xl font-black tracking-tight mb-2">👤 User Management</h1>
+        <p class="text-text-muted font-medium">Monitor and control system account statuses</p>
     </header>
 
     {#if loading}
-        <p>กำลังดึงข้อมูลผู้ใช้...</p>
+        <div class="flex justify-center items-center h-64">
+            <p class="text-text-muted animate-pulse font-bold text-xl">Loading users...</p>
+        </div>
     {:else}
-        <div class="user-table-wrapper">
-            <table>
+        <div class="bg-bg-elevated rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
+            <table class="w-full border-collapse text-left">
                 <thead>
-                    <tr>
-                        <th>ผู้ใช้งาน</th>
-                        <th>อีเมล</th>
-                        <th>วันที่เข้าร่วม</th>
-                        <th>สถานะ</th>
-                        <th>จัดการ</th>
+                    <tr class="bg-bg-highlight/50 text-xs font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+                        <th class="p-6">User</th>
+                        <th class="p-6">Email</th>
+                        <th class="p-6">Joined Date</th>
+                        <th class="p-6">Status</th>
+                        <th class="p-6 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="divide-y divide-white/5">
                     {#each allUsers as user}
-                        <tr>
-                            <td>
-                                <strong>{user.displayName || user.username}</strong>
-                                <br><small style="color: #888;">@{user.username}</small>
+                        <tr class="hover:bg-white/5 transition-colors">
+                            <td class="p-6">
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-white">{user.displayName || user.username}</span>
+                                    <span class="text-xs text-text-muted">@{user.username}</span>
+                                </div>
                             </td>
-                            <td>{user.email}</td>
-                            <td>{new Date(user.createdAt).toLocaleDateString('th-TH')}</td>
-                            <td>
-                                <span class="status-badge {user.accountStatus}">
-                                    {user.accountStatus.toUpperCase()}
+                            <td class="p-6 text-sm text-text-muted">{user.email}</td>
+                            <td class="p-6 text-sm text-text-muted">{new Date(user.createdAt).toLocaleDateString()}</td>
+                            <td class="p-6">
+                                <span class="text-[10px] font-black tracking-widest px-3 py-1 rounded-full uppercase {user.accountStatus === 'active' ? 'bg-primary/20 text-primary' : 'bg-red-500/20 text-red-400'}">
+                                    {user.accountStatus}
                                 </span>
                             </td>
-                            <td>
-                                <div class="action-btns">
-                                    {#if user.accountStatus === 'active'}
-                                        <button class="ban-btn" onclick={() => updateStatus(user.id, 'suspended')} disabled={processingId === user.id}>
-                                            🚫 ระงับการใช้งาน
-                                        </button>
-                                    {:else}
-                                        <button class="active-btn" onclick={() => updateStatus(user.id, 'active')} disabled={processingId === user.id}>
-                                            ✅ ปลดแบน
-                                        </button>
-                                    {/if}
-                                </div>
+                            <td class="p-6 text-right">
+                                {#if user.accountStatus === 'active'}
+                                    <button 
+                                        class="text-xs font-black px-4 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white transition-all disabled:opacity-50" 
+                                        onclick={() => updateStatus(user.id, 'suspended')} 
+                                        disabled={processingId === user.id}
+                                    >
+                                        SUSPEND
+                                    </button>
+                                {:else}
+                                    <button 
+                                        class="text-xs font-black px-4 py-2 rounded-lg border border-primary/50 text-primary hover:bg-primary hover:text-black transition-all disabled:opacity-50" 
+                                        onclick={() => updateStatus(user.id, 'active')} 
+                                        disabled={processingId === user.id}
+                                    >
+                                        ACTIVATE
+                                    </button>
+                                {/if}
                             </td>
                         </tr>
                     {/each}
@@ -95,26 +107,4 @@
             </table>
         </div>
     {/if}
-</main>
-
-<style>
-    .admin-user-container { padding: 2rem; max-width: 1100px; margin: 0 auto; font-family: sans-serif; }
-    h1 { color: #333; margin: 0; }
-    header p { color: #666; margin: 10px 0 30px 0; }
-
-    .user-table-wrapper { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #eee; }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th { background: #f8f9fa; padding: 1.2rem 1rem; color: #555; border-bottom: 2px solid #eee; }
-    td { padding: 1rem; border-bottom: 1px solid #eee; }
-
-    .status-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
-    .status-badge.active { background: #e8f5e9; color: #2e7d32; }
-    .status-badge.suspended { background: #ffebee; color: #c62828; }
-
-    .action-btns button { padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; border: 1px solid transparent; transition: all 0.2s; }
-    .ban-btn { border-color: #ef4444; color: #ef4444; background: transparent; }
-    .ban-btn:hover { background: #ef4444; color: white; }
-    .active-btn { border-color: #1db954; color: #1db954; background: transparent; }
-    .active-btn:hover { background: #1db954; color: white; }
-    button:disabled { opacity: 0.5; }
-</style>
+</div>

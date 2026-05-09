@@ -2,24 +2,21 @@
     import { playerState, playTrack, nextTrack, prevTrack } from '$lib/player.svelte';
     import { authState, initAuth, logoutUser } from '$lib/auth.svelte';
     import { onMount } from 'svelte';
+    import './layout.css';
     
     let { children } = $props();
 
-    // 1. ดึงค่า User จาก LocalStorage ทันทีที่เว็บโหลดเสร็จ
     onMount(() => {
         initAuth();
     });
 
-    // 2. State สำหรับ Custom Audio Player
-    let audioRef: HTMLAudioElement;
+    let audioRef = $state<HTMLAudioElement>();
     let currentTime = $state(0);
     let duration = $state(0);
     let volume = $state(0.6);
 
-    // 3. State สำหรับ Subscription Info
     let subInfo = $state<any>(null);
 
-    // ดึงข้อมูล Subscription เมื่อ User ล็อกอิน
     $effect(() => {
         if (authState.currentUser?.id) {
             fetchSubStatus(authState.currentUser.id);
@@ -33,7 +30,6 @@
             const res = await fetch(`http://127.0.0.1:8787/api/users/${userId}/subscription`);
             const result = await res.json();
             if (result.success && result.isActive) {
-                // คำนวณวันที่เหลือ
                 const expiryDate = new Date(result.data.userSub.expiryDate);
                 const today = new Date();
                 const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
@@ -46,13 +42,12 @@
         } catch (e) { console.error(e); }
     }
 
-    // 👇 เปลี่ยนมาคุมแท็ก Audio แบบตรงไปตรงมา
     function togglePlay() {
         if (!audioRef) return;
         if (playerState.isPlaying) {
-            audioRef.pause(); // สั่งหยุด
+            audioRef.pause();
         } else {
-            audioRef.play().catch(() => {}); // สั่งเล่น
+            audioRef.play().catch(() => {});
         }
     }
 
@@ -81,53 +76,97 @@
     }
 </script>
 
-{#if subInfo?.isExpiringSoon}
-    <div class="expiry-banner">
-        ⚠️ Premium ของคุณกำลังจะหมดอายุใน <strong>{subInfo.daysRemaining} วัน</strong> 
-        <a href="/subscriptions">ต่ออายุตอนนี้เพื่อฟังเพลงได้อย่างต่อเนื่อง!</a>
-    </div>
-{/if}
+<div class="flex h-screen overflow-hidden bg-bg-base text-text-base">
+    <!-- Sidebar -->
+    <aside class="w-64 flex flex-col bg-black p-6 gap-6 shrink-0">
+        <a href="/" class="flex items-center gap-2 text-primary font-bold text-2xl tracking-tight mb-2">
+            <span class="text-3xl">💜</span>
+            Kawii Music
+        </a>
 
-<nav style="background: #121212; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
-    
-    <div style="display: flex; align-items: center; gap: 30px;">
-        <a href="/" style="color: #1db954; font-weight: bold; font-size: 1.3em; text-decoration: none; letter-spacing: 1px;">Kawii Music</a>
-        
-        <div style="display: flex; gap: 20px; font-weight: bold; font-size: 0.95em;">
-            <a href="/" style="color: #fff; text-decoration: none;">Home</a>
-            <a href="/artists" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Artists</a>
-            <a href="/albums" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'} title="ดูอัลบั้มทั้งหมด">Albums</a>
-            <a href="/following" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Following</a>
-            <a href="/subscriptions" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Premium</a>
-            <a href="/merch" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Store</a>
-            <a href="/admin" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Admin</a>
-        </div>
-    </div>
-    
-    <div>
-        {#if authState.currentUser}
-            <span style="margin-right: 15px; color: #ccc; display: inline-flex; align-items: center; gap: 8px;">
-                {#if authState.currentUser.pfpUrl || authState.currentUser.pfp_url}
-                    <img src={authState.currentUser.pfpUrl || authState.currentUser.pfp_url} alt="Profile" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;" />
+        <nav class="flex flex-col gap-4 text-text-muted font-bold">
+            <a href="/" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span class="text-xl">🏠</span> Home
+            </a>
+            <a href="/artists" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span class="text-xl">🎤</span> Artists
+            </a>
+            <a href="/albums" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span class="text-xl">💿</span> Albums
+            </a>
+            <a href="/favorites" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span class="text-xl">💜</span> Favorites
+            </a>
+        </nav>
+
+        <div class="h-[1px] bg-bg-highlight w-full my-2"></div>
+
+        <nav class="flex flex-col gap-4 text-text-muted font-bold overflow-y-auto">
+            <p class="text-xs uppercase tracking-widest text-text-muted/60 mb-2">Your Library</p>
+            <a href="/following" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span>👥</span> Following
+            </a>
+            <a href="/subscriptions" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span>💎</span> Premium
+            </a>
+            <a href="/merch" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span>🛍️</span> Store
+            </a>
+            <a href="/admin" class="flex items-center gap-4 hover:text-text-base transition-colors duration-200">
+                <span>⚙️</span> Admin
+            </a>
+        </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col relative overflow-hidden">
+        <!-- Top Nav -->
+        <header class="h-16 flex items-center justify-between px-8 bg-bg-surface/80 backdrop-blur-md sticky top-0 z-50">
+            <div class="flex items-center gap-4">
+                <button class="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-white" onclick={() => window.history.back()}>
+                    &lsaquo;
+                </button>
+                <button class="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-white" onclick={() => window.history.forward()}>
+                    &rsaquo;
+                </button>
+            </div>
+
+            <div>
+                {#if authState.currentUser}
+                    <div class="flex items-center gap-4">
+                        <span class="flex items-center gap-2 bg-black/50 py-1 pl-1 pr-3 rounded-full text-sm font-bold">
+                            {#if authState.currentUser.pfpUrl || authState.currentUser.pfp_url}
+                                <img src={authState.currentUser.pfpUrl || authState.currentUser.pfp_url} alt="Profile" class="w-7 h-7 rounded-full object-cover" />
+                            {:else}
+                                <div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs">👤</div>
+                            {/if}
+                            {authState.currentUser.displayName || authState.currentUser.username}
+                        </span>
+                        <button onclick={logoutUser} class="text-sm font-bold text-text-muted hover:text-text-base">Logout</button>
+                    </div>
                 {:else}
-                    👤
+                    <a href="/login" class="bg-white text-black px-8 py-2.5 rounded-full font-bold hover:scale-105 active:scale-100 transition-transform">Log in</a>
                 {/if}
-                {authState.currentUser.displayName || authState.currentUser.username}
-            </span>
-            <button onclick={logoutUser} style="padding: 6px 15px; background: transparent; border: 1px solid #777; color: white; border-radius: 20px; cursor: pointer; font-weight: bold; transition: border 0.2s;" onmouseover={(e) => e.currentTarget.style.borderColor = '#fff'} onmouseout={(e) => e.currentTarget.style.borderColor = '#777'}>Logout</button>
-        {:else}
-            <a href="/login" style="padding: 8px 20px; background: white; color: black; font-weight: bold; border-radius: 20px; text-decoration: none; transition: transform 0.1s;" onmousedown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onmouseup={(e) => e.currentTarget.style.transform = 'scale(1)'}>Log in</a>
-        {/if}
-    </div>
-</nav>
+            </div>
+        </header>
 
-<div style="padding-bottom: {playerState.currentTrack ? '100px' : '0'}; transition: padding 0.3s;"> 
-    {@render children()}
+        <!-- Page Content -->
+        <main class="flex-1 overflow-y-auto bg-gradient-to-b from-bg-surface to-bg-base p-8 pb-32">
+            {#if subInfo?.isExpiringSoon}
+                <div class="bg-yellow-400 text-black text-center p-3 rounded-lg mb-8 font-bold text-sm shadow-lg">
+                    ⚠️ Premium ของคุณกำลังจะหมดอายุใน {subInfo.daysRemaining} วัน 
+                    <a href="/subscriptions" class="underline ml-2">ต่ออายุตอนนี้เพื่อฟังเพลงได้อย่างต่อเนื่อง!</a>
+                </div>
+            {/if}
+            
+            {@render children()}
+        </main>
+    </div>
 </div>
 
+<!-- Player Bar -->
 {#if playerState.currentTrack}
-    <div style="position: fixed; bottom: 0; left: 0; right: 0; height: 90px; background: #121212; color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; box-shadow: 0 -4px 20px rgba(0,0,0,0.5); z-index: 9999; border-top: 1px solid #282828;">
-        
+    <div class="fixed bottom-0 left-0 right-0 h-24 bg-black border-t border-bg-highlight flex items-center justify-between px-4 z-[10000]">
         {#key playerState.currentTrack.id}
             <audio 
                 bind:this={audioRef} 
@@ -142,65 +181,79 @@
             ></audio>
         {/key}
 
-        <div style="display: flex; align-items: center; gap: 15px; width: 30%;">
-            <div style="width: 56px; height: 56px; background: #282828; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
+        <!-- Track Info -->
+        <div class="flex items-center gap-4 w-[30%] min-w-0">
+            <div class="w-14 h-14 bg-bg-highlight rounded shadow-lg overflow-hidden shrink-0">
                 {#if playerState.currentTrack.album?.imgUrl || playerState.currentTrack.album?.img_url}
-                    <img src={playerState.currentTrack.album.imgUrl || playerState.currentTrack.album.img_url} alt="Cover" style="width: 100%; height: 100%; object-fit: cover;" />
+                    <img src={playerState.currentTrack.album.imgUrl || playerState.currentTrack.album.img_url} alt="Cover" class="w-full h-full object-cover" />
                 {:else}
-                    <span style="font-size: 1.5em;">🎵</span>
+                    <div class="w-full h-full flex items-center justify-center text-2xl">🎵</div>
                 {/if}
             </div>
-            <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                <p style="margin: 0; font-weight: bold; font-size: 0.95em; color: #fff;">{playerState.currentTrack.title}</p>
-                <p style="margin: 3px 0 0 0; font-size: 0.8em; color: #b3b3b3;">
+            <div class="min-w-0">
+                <div class="font-bold text-sm text-white truncate hover:underline cursor-pointer">{playerState.currentTrack.title}</div>
+                <div class="text-xs text-text-muted truncate hover:underline hover:text-white cursor-pointer">
                     {playerState.currentTrack.artists?.map((a:any) => a.name).join(', ') || 'Unknown Artist'}
-                </p>
+                </div>
+            </div>
+            <button class="text-text-muted hover:text-primary transition-colors ml-2 text-xl">💜</button>
+        </div>
+
+        <!-- Controls -->
+        <div class="flex flex-col items-center gap-2 max-w-[40%] w-full">
+            <div class="flex items-center gap-6">
+                <button onclick={handlePrev} class="text-text-muted hover:text-white text-xl transition-colors">⏮</button>
+                <button onclick={togglePlay} class="w-8 h-8 flex items-center justify-center bg-white text-black rounded-full hover:scale-105 active:scale-100 transition-transform">
+                    <span class="text-lg">{playerState.isPlaying ? '⏸' : '▶'}</span>
+                </button>
+                <button onclick={handleNext} class="text-text-muted hover:text-white text-xl transition-colors">⏭</button>
+            </div>
+            <div class="flex items-center gap-2 w-full max-w-md">
+                <span class="text-[10px] text-text-muted min-w-[32px] text-right">{formatTime(currentTime)}</span>
+                <div class="flex-1 h-1 relative group cursor-pointer">
+                    <input 
+                        type="range" 
+                        min="0" 
+                        max={duration || 100} 
+                        value={currentTime} 
+                        oninput={handleSeek} 
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div class="absolute inset-0 bg-bg-highlight rounded-full"></div>
+                    <div class="absolute inset-y-0 left-0 bg-primary rounded-full group-hover:bg-primary-hover" style="width: {(currentTime / (duration || 1)) * 100}%"></div>
+                    <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md hidden group-hover:block" style="left: {(currentTime / (duration || 1)) * 100}%"></div>
+                </div>
+                <span class="text-[10px] text-text-muted min-w-[32px]">{formatTime(duration)}</span>
             </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; align-items: center; width: 40%; max-width: 500px;">
-            <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 8px;">
-                <button onclick={handlePrev} style="background: none; border: none; color: #b3b3b3; cursor: pointer; font-size: 1.2em;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>
-                    ⏮
-                </button>
-                <button onclick={togglePlay} style="width: 35px; height: 35px; border-radius: 50%; background: #fff; color: #000; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1em; transition: transform 0.1s;" onmousedown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onmouseup={(e) => e.currentTarget.style.transform = 'scale(1)'}>
-                    {playerState.isPlaying ? '⏸' : '▶'}
-                </button>
-                <button onclick={handleNext} style="background: none; border: none; color: #b3b3b3; cursor: pointer; font-size: 1.2em;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>
-                    ⏭
-                </button>
+        <!-- Volume & Extras -->
+        <div class="flex justify-end items-center gap-3 w-[30%]">
+            <span class="text-text-muted hover:text-white transition-colors cursor-pointer">🔊</span>
+            <div class="w-24 h-1 relative group cursor-pointer">
+                <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.01" 
+                    bind:value={volume} 
+                    class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+                <div class="absolute inset-0 bg-bg-highlight rounded-full"></div>
+                <div class="absolute inset-y-0 left-0 bg-primary group-hover:bg-primary-hover rounded-full" style="width: {volume * 100}%"></div>
+                <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md hidden group-hover:block" style="left: {volume * 100}%"></div>
             </div>
-            
-            <div style="display: flex; align-items: center; gap: 10px; width: 100%; font-size: 0.75em; color: #b3b3b3;">
-                <span style="min-width: 30px; text-align: right;">{formatTime(currentTime)}</span>
-                <input type="range" min="0" max={duration || 100} value={currentTime} oninput={handleSeek} style="flex: 1; height: 4px; border-radius: 2px; appearance: none; background: #4d4d4d; cursor: pointer; outline: none;" />
-                <span style="min-width: 30px;">{formatTime(duration)}</span>
-            </div>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; width: 30%;">
-            <span style="font-size: 1.2em; color: #b3b3b3;">🔊</span>
-            <input type="range" min="0" max="1" step="0.01" bind:value={volume} style="width: 100px; height: 4px; border-radius: 2px; appearance: none; background: #4d4d4d; cursor: pointer; outline: none;" />
         </div>
     </div>
 {/if}
 
 <style>
-    /* Style สำหรับ Subscription Expiry Banner */
-    .expiry-banner {
-        background: #ffcc00;
-        color: #000;
-        text-align: center;
-        padding: 10px;
-        font-size: 0.9em;
-        font-weight: bold;
-        position: sticky;
-        top: 0;
-        z-index: 10000;
+    :global(html, body) {
+        overflow: hidden;
+        height: 100%;
     }
-    .expiry-banner a {
-        color: #000;
-        text-decoration: underline;
-        margin-left: 10px;
+
+    input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
     }
 </style>

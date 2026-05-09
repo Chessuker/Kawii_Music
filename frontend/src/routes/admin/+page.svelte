@@ -2,9 +2,6 @@
     import { onMount } from 'svelte';
     import { adminAuthState } from '$lib/adminAuth.svelte';
 
-    // ==============================================
-    // 1. STATES
-    // ==============================================
     // Metadata States
     let availableArtists: any[] = $state([]);
     let availableGenres: any[] = $state([]);
@@ -60,16 +57,16 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     identifier: iaIdentifier,
-                    albumId: selectedAlbum, // ใช้ Album ที่เลือกไว้ฝั่งซ้ายได้เลย
-                    artistIds: selectedArtists, // ใช้ Artist ที่เลือกไว้ได้เลย
-                    genreIds: selectedGenres  // ใช้ Genre ที่เลือกไว้ได้เลย
+                    albumId: selectedAlbum,
+                    artistIds: selectedArtists,
+                    genreIds: selectedGenres
                 })
             });
             const result = await res.json();
             if (result.success) {
                 alert(`✅ ${result.message}`);
-                loadTracks(); // โหลดตารางเพลงใหม่
-                iaIdentifier = ''; // เคลียร์ช่อง
+                loadTracks();
+                iaIdentifier = '';
             } else {
                 alert('❌ เกิดข้อผิดพลาด: ' + result.error);
             }
@@ -79,11 +76,9 @@
         isSyncingIA = false;
     }
 
-    // 👇 1. เพิ่ม State สำหรับกล่องค้นหา Checkbox
     let searchArtistText = $state('');
     let searchGenreText = $state('');
 
-    // 👇 2. ใช้ $derived เพื่อกรองข้อมูลแบบ Real-time ทันทีที่พิมพ์
     let filteredEditArtists = $derived(
         availableArtists.filter(a => a.name.toLowerCase().includes(searchArtistText.toLowerCase()))
     );
@@ -91,9 +86,6 @@
         availableGenres.filter(g => g.name.toLowerCase().includes(searchGenreText.toLowerCase()))
     );
 
-    // ==============================================
-    // 2. DATA FETCHING
-    // ==============================================
     async function loadMetadata() {
         const [metaRes, albumRes] = await Promise.all([
             fetch('http://127.0.0.1:8787/api/metadata'),
@@ -129,15 +121,11 @@
         }
     }
 
-    // ฟังก์ชันสำหรับกดปุ่มค้นหา
     function applyFilter(e: Event) {
         e.preventDefault();
-        loadTracks(1); // ค้นหาใหม่ให้กลับไปหน้า 1
+        loadTracks(1);
     }
 
-    // ==============================================
-    // 3. UPLOAD & QUICK ADD LOGIC
-    // ==============================================
     async function handleFileSelection(e: Event) {
         if (!files) return;
         uploadQueue = []; 
@@ -188,12 +176,11 @@
         alert('อัปโหลด Batch เสร็จสิ้น!');
     }
 
-async function createAlbum() {
+    async function createAlbum() {
         if (!newAlbumTitle) return;
         const res = await fetch('http://127.0.0.1:8787/api/albums', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
-            // 👇 แนบ adminId ไปให้ Backend บันทึก Audit Log
             body: JSON.stringify({ title: newAlbumTitle, adminId: adminAuthState.currentAdmin?.id }) 
         });
         const result = await res.json();
@@ -205,7 +192,6 @@ async function createAlbum() {
         const res = await fetch('http://127.0.0.1:8787/api/artists', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
-            // 👇 แนบ adminId
             body: JSON.stringify({ name: newArtistName, adminId: adminAuthState.currentAdmin?.id }) 
         });
         const result = await res.json();
@@ -217,21 +203,16 @@ async function createAlbum() {
         const res = await fetch('http://127.0.0.1:8787/api/genres', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
-            // 👇 แนบ adminId
             body: JSON.stringify({ name: newGenreName, adminId: adminAuthState.currentAdmin?.id }) 
         });
         const result = await res.json();
         if (result.success) { newGenreName = ''; loadMetadata(); selectedGenres = [...selectedGenres, result.data.id]; }
     }
 
-    // ==============================================
-    // 4. EDIT & DELETE LOGIC
-    // ==============================================
     function startEdit(track: any) {
         isEditMode = true;
         editingTrackId = track.id;
         editTitle = track.title;
-        // ดึงข้อมูลเดิมมาใส่ Form
         selectedArtists = track.artists ? track.artists.map((a: any) => a.id) : [];
         selectedGenres = track.genres ? track.genres.map((g: any) => g.id) : [];
         selectedAlbum = track.album ? track.album.id : '';
@@ -286,9 +267,6 @@ async function createAlbum() {
         }
     }
 
-    // ==============================================
-    // 5. UTILS
-    // ==============================================
     function toggleSelection(array: string[], id: string) {
         return array.includes(id) ? array.filter(itemId => itemId !== id) : [...array, id];
     }
@@ -307,124 +285,117 @@ async function createAlbum() {
     }
 </script>
 
-<main style="max-width: 1000px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-        <div>
-            <h1 style="color: #1db954; margin: 0;">🎛 Admin Dashboard</h1>
-            <p style="color: #888; margin: 5px 0 0 0;">ศูนย์กลางการควบคุมและการจัดการเพลง (Track Management)</p>
-        </div>
+<div class="max-w-6xl mx-auto flex flex-col gap-10">
+    <div class="flex flex-col gap-2">
+        <h1 class="text-4xl font-black text-primary tracking-tight">🎛 Admin Dashboard</h1>
+        <p class="text-text-muted font-medium">Track and Metadata Management Center</p>
     </div>
 
-    <section style="background: #1a1a1a; padding: 20px; border-radius: 8px; margin-bottom: 35px; border: 1px solid #333;">
-        <p style="margin: 0 0 15px 0; color: #ccc; font-weight: bold; font-size: 0.95em;">
-            ⚙️ ข้ามไปยังระบบการจัดการอื่นๆ (Admin Modules)
-        </p>
-        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-            <a href="/admin/users" class="nav-module-btn" style="--btn-color: #4f46e5;">👤 จัดการผู้ใช้งาน</a>
-            <a href="/admin/merch" class="nav-module-btn" style="--btn-color: #1db954;">🛍️ จัดการสินค้า</a>
-            <a href="/admin/orders" class="nav-module-btn" style="--btn-color: #f59e0b;">📦 จัดการคำสั่งซื้อ</a>
-            <a href="/admin/ranking" class="nav-module-btn" style="--btn-color: #ec4899;">🏆 อันดับศิลปิน</a>
-            <a href="/admin/logs" class="nav-module-btn" style="--btn-color: #6b7280;">🛡️ Audit Logs</a>
+    <!-- Admin Navigation Modules -->
+    <section class="bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
+        <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-4">Quick Navigation</p>
+        <div class="flex flex-wrap gap-3">
+            <a href="/admin/users" class="nav-module-btn border-l-indigo-500 hover:border-indigo-500">👤 Users</a>
+            <a href="/admin/merch" class="nav-module-btn border-l-primary hover:border-primary">🛍️ Store</a>
+            <a href="/admin/orders" class="nav-module-btn border-l-amber-500 hover:border-amber-500">📦 Orders</a>
+            <a href="/admin/ranking" class="nav-module-btn border-l-pink-500 hover:border-pink-500">🏆 Ranking</a>
+            <a href="/admin/logs" class="nav-module-btn border-l-gray-500 hover:border-gray-500">🛡️ Logs</a>
         </div>
     </section>
+
     {#if !isEditMode}
-        <!-- ================= โหมด UPLOAD ================= -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 40px;">
-            <section style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                <h2 style="margin-top: 0; color: #333;">1. ตั้งค่า Metadata สำหรับ Batch</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- 1. Metadata Config -->
+            <section class="bg-bg-elevated p-8 rounded-2xl border border-white/5 shadow-2xl flex flex-col gap-8">
+                <h2 class="text-2xl font-black mb-2">1. Metadata for Batch</h2>
                 
-                <!-- อัลบั้ม -->
-                <div style="margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ddd;">
-                    <label style="font-weight: bold;">เลือกอัลบั้ม:</label>
-                    <select bind:value={selectedAlbum} style="width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 10px;">
-                        <option value="">-- ไม่อยู่ในอัลบั้ม --</option>
-                        {#each availableAlbums as album}
-                            <option value={album.id}>{album.title}</option>
-                        {/each}
-                    </select>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" bind:value={newAlbumTitle} placeholder="...หรือสร้างใหม่" style="flex: 1; padding: 8px;" />
-                        <button onclick={createAlbum} style="padding: 8px 15px; background: #333; color: white; border: none; cursor: pointer;">สร้าง</button>
-                    </div>
-                </div>
-
-                <!-- ศิลปิน -->
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎤 ศิลปิน (Artists):</label>
-                    
-                    <input 
-                        type="text" 
-                        bind:value={searchArtistText} 
-                        placeholder="🔍 พิมพ์ค้นหาชื่อศิลปิน..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditArtists as artist}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <input type="checkbox" bind:group={selectedArtists} value={artist.id}> {artist.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบศิลปินที่ค้นหา</p>
-                        {/each}
+                <div class="space-y-6">
+                    <!-- Album -->
+                    <div class="flex flex-col gap-2 p-5 bg-bg-highlight rounded-xl border border-white/5">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Select Album</label>
+                        <select bind:value={selectedAlbum} class="bg-bg-elevated border-none rounded-lg py-2.5 px-3 text-sm focus:ring-2 focus:ring-primary outline-none">
+                            <option value="">-- No Album (Single) --</option>
+                            {#each availableAlbums as album}
+                                <option value={album.id}>{album.title}</option>
+                            {/each}
+                        </select>
+                        <div class="flex gap-2 mt-2">
+                            <input type="text" bind:value={newAlbumTitle} placeholder="Or create new..." class="flex-1 bg-bg-elevated border-none rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                            <button onclick={createAlbum} class="bg-white text-black px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 active:scale-95 transition-transform">Create</button>
+                        </div>
                     </div>
 
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <input type="text" bind:value={newArtistName} placeholder="+ เพิ่มศิลปินใหม่..." style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" />
-                        <button type="button" onclick={createArtist} style="padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer;">เพิ่ม</button>
-                    </div>
-                </div>
-
-                <!-- แนวเพลง -->
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎸 แนวเพลง (Genres):</label>
-                    
-                    <input 
-                        type="text" 
-                        bind:value={searchGenreText} 
-                        placeholder="🔍 พิมพ์ค้นหาแนวเพลง..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditGenres as genre}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <input type="checkbox" bind:group={selectedGenres} value={genre.id}> {genre.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบแนวเพลงที่ค้นหา</p>
-                        {/each}
+                    <!-- Artists -->
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Artists</label>
+                        <input type="text" bind:value={searchArtistText} placeholder="🔍 Filter artists..." class="bg-bg-highlight border-none rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-primary outline-none mb-2" />
+                        <div class="h-48 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
+                            {#each filteredEditArtists as artist}
+                                <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
+                                    <input type="checkbox" bind:group={selectedArtists} value={artist.id} class="rounded border-gray-600 bg-bg-elevated text-primary focus:ring-primary">
+                                    <span class="text-sm font-medium">{artist.name}</span>
+                                </label>
+                            {:else}
+                                <p class="text-text-muted text-xs text-center mt-4 italic">No artists found</p>
+                            {/each}
+                        </div>
+                        <div class="flex gap-2 mt-2">
+                            <input type="text" bind:value={newArtistName} placeholder="+ Add artist..." class="flex-1 bg-bg-highlight border-none rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                            <button onclick={createArtist} class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-500 transition-colors">Add</button>
+                        </div>
                     </div>
 
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <input type="text" bind:value={newGenreName} placeholder="+ เพิ่มแนวเพลงใหม่..." style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" />
-                        <button type="button" onclick={createGenre} style="padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer;">เพิ่ม</button>
+                    <!-- Genres -->
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Genres</label>
+                        <input type="text" bind:value={searchGenreText} placeholder="🔍 Filter genres..." class="bg-bg-highlight border-none rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-primary outline-none mb-2" />
+                        <div class="h-48 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
+                            {#each filteredEditGenres as genre}
+                                <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
+                                    <input type="checkbox" bind:group={selectedGenres} value={genre.id} class="rounded border-gray-600 bg-bg-elevated text-primary focus:ring-primary">
+                                    <span class="text-sm font-medium">{genre.name}</span>
+                                </label>
+                            {:else}
+                                <p class="text-text-muted text-xs text-center mt-4 italic">No genres found</p>
+                            {/each}
+                        </div>
+                        <div class="flex gap-2 mt-2">
+                            <input type="text" bind:value={newGenreName} placeholder="+ Add genre..." class="flex-1 bg-bg-highlight border-none rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                            <button onclick={createGenre} class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-500 transition-colors">Add</button>
+                        </div>
                     </div>
                 </div>
             </section>
 
-            <section style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                <h2 style="margin-top: 0; color: #333;">2. เลือกไฟล์ทั้งหมด</h2>
-                <input 
-                    type="file" accept=".mp3, .wav, .flac" multiple 
-                    bind:files={files} onchange={handleFileSelection}
-                    style="width: 100%; padding: 10px; background: #e8f5e9; border: 2px dashed #1db954; border-radius: 8px; cursor: pointer;"
-                />
+            <!-- 2. File Selection -->
+            <section class="bg-bg-elevated p-8 rounded-2xl border border-white/5 shadow-2xl flex flex-col gap-6">
+                <h2 class="text-2xl font-black mb-2">2. Upload Files</h2>
+                <div class="relative group">
+                    <input 
+                        type="file" accept=".mp3, .wav, .flac" multiple 
+                        bind:files={files} onchange={handleFileSelection}
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div class="border-2 border-dashed border-primary/30 group-hover:border-primary/60 rounded-2xl p-10 text-center transition-all bg-primary/5">
+                        <span class="text-4xl mb-4 block">🎵</span>
+                        <p class="font-bold text-primary">Click or drag files to upload</p>
+                        <p class="text-xs text-text-muted mt-2">MP3, WAV, or FLAC supported</p>
+                    </div>
+                </div>
 
                 {#if uploadQueue.length > 0}
-                    <div style="margin-top: 20px; max-height: 400px; overflow-y: auto;">
+                    <div class="flex-1 overflow-y-auto max-h-[500px] flex flex-col gap-2 pr-2">
                         {#each uploadQueue as track}
-                            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee;">
-                                <div style="display: flex; flex-direction: column;">
-                                    <input type="text" bind:value={track.title} style="border: none; font-weight: bold; background: transparent; width: 250px;" />
-                                    <span style="font-size: 0.8em; color: #888;">{track.duration}</span>
+                            <div class="bg-bg-highlight p-4 rounded-xl flex justify-between items-center border border-white/5">
+                                <div class="min-w-0">
+                                    <input type="text" bind:value={track.title} class="bg-transparent border-none p-0 font-bold text-sm w-full outline-none focus:text-primary" />
+                                    <span class="text-[10px] text-text-muted font-bold tracking-widest uppercase">{track.duration}</span>
                                 </div>
-                                <div>
-                                    {#if track.status === 'pending'} ⏳ รอ
-                                    {:else if track.status === 'uploading'} 🔄 อัป..
-                                    {:else if track.status === 'success'} ✅ เสร็จ
-                                    {:else} ❌ พัง
+                                <div class="text-xs font-black">
+                                    {#if track.status === 'pending'} <span class="text-text-muted">WAITING</span>
+                                    {:else if track.status === 'uploading'} <span class="text-indigo-400 animate-pulse">UPLOADING...</span>
+                                    {:else if track.status === 'success'} <span class="text-primary">COMPLETED</span>
+                                    {:else} <span class="text-red-500">ERROR</span>
                                     {/if}
                                 </div>
                             </div>
@@ -433,236 +404,188 @@ async function createAlbum() {
 
                     <button 
                         onclick={startBatchUpload} disabled={isUploadingBatch}
-                        style="width: 100%; margin-top: 20px; padding: 15px; background: #1db954; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; cursor: pointer;"
+                        class="w-full bg-primary hover:bg-primary-hover text-black py-4 rounded-full font-black text-lg transition-all shadow-xl disabled:opacity-50"
                     >
-                        {isUploadingBatch ? 'กำลังประมวลผล Batch...' : `เริ่มอัปโหลด ${uploadQueue.length} เพลง`}
+                        {isUploadingBatch ? 'Processing Batch...' : `Upload ${uploadQueue.length} Tracks`}
                     </button>
                 {/if}
             </section>
         </div>
 
-            <!-- เพิ่ม Section ใหม่สำหรับ Internet Archive ต่อท้าย Section เลือกไฟล์ -->
-            <section style="background: #e3f2fd; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); grid-column: span 2; margin-top: -10px;">
-                <h2 style="margin-top: 0; color: #1565c0;">🌐 ดึงข้อมูลอัตโนมัติจาก Internet Archive (Automate Sync)</h2>
-                <p style="font-size: 0.9em; color: #555; margin-bottom: 15px;">
-                    ดึงไฟล์ .mp3 / .flac ทั้งหมดใน Collection รวดเดียว โดยอิง Metadata (อัลบั้ม, ศิลปิน, แนวเพลง) จากกล่องหมายเลข 1 ด้านบน
-                </p>
-                <div style="display: flex; gap: 15px; align-items: center;">
-                    <div style="flex: 1;">
-                        <label style="font-weight: bold; display: block; margin-bottom: 5px;">IA Identifier (เช่น redtopia-flac-01):</label>
-                        <input type="text" bind:value={iaIdentifier} placeholder="redtopia-flac-01" style="width: 100%; padding: 12px; border: 1px solid #90caf9; border-radius: 4px; box-sizing: border-box;" />
-                    </div>
-                    <button 
-                        onclick={syncFromIA} 
-                        disabled={isSyncingIA}
-                        style="padding: 12px 30px; background: #1976d2; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 1.1em; cursor: pointer; margin-top: 25px;"
-                    >
-                        {isSyncingIA ? 'กำลังดึงข้อมูล... ⏳' : 'ดูดเพลงลง Database ⚡'}
-                    </button>
+        <!-- IA Sync -->
+        <section class="bg-indigo-900/20 p-8 rounded-2xl border border-indigo-500/30 shadow-2xl flex flex-col gap-4">
+            <h2 class="text-2xl font-black text-indigo-300">🌐 Internet Archive Sync</h2>
+            <p class="text-sm text-indigo-200/60 max-w-2xl">
+                Automatically import all audio files from an IA collection. Metadata will be applied based on your selections in Box 1.
+            </p>
+            <div class="flex flex-col md:flex-row gap-4 items-end">
+                <div class="flex-1 w-full">
+                    <label class="text-xs font-bold uppercase tracking-wider text-indigo-300 ml-1">IA Identifier</label>
+                    <input type="text" bind:value={iaIdentifier} placeholder="e.g. redtopia-flac-01" class="w-full bg-bg-highlight border-indigo-500/30 border rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none mt-1.5" />
                 </div>
-            </section>
+                <button 
+                    onclick={syncFromIA} 
+                    disabled={isSyncingIA}
+                    class="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-black transition-all disabled:opacity-50 h-[50px] shadow-lg"
+                >
+                    {isSyncingIA ? 'Syncing...' : 'Start IA Import ⚡'}
+                </button>
+            </div>
+        </section>
 
     {:else}
-        <!-- ================= โหมด EDIT ================= -->
-        <section style="background: #fff3e0; padding: 25px; border-radius: 8px; border: 2px solid #ff9800; margin-bottom: 40px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-            <h2 style="margin-top: 0; color: #e65100;">✏️ โหมดแก้ไขเพลง</h2>
+        <!-- ================= EDIT MODE ================= -->
+        <section class="bg-bg-elevated p-10 rounded-3xl border-2 border-primary/50 shadow-2xl flex flex-col gap-8 animate-in zoom-in duration-300">
+            <h2 class="text-3xl font-black text-primary">✏️ Edit Track</h2>
             
-            <div style="display: flex; flex-direction: column; gap: 15px;">
-                <div>
-                    <label style="font-weight: bold;">ชื่อเพลง:</label>
-                    <input type="text" bind:value={editTitle} style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;" />
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="space-y-6">
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Track Title</label>
+                        <input type="text" bind:value={editTitle} class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-base focus:ring-2 focus:ring-primary outline-none" />
+                    </div>
 
-                <div>
-                    <label style="font-weight: bold;">อัปเดตอัลบั้ม:</label>
-                    <select bind:value={selectedAlbum} style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
-                        <option value="">-- ไม่อยู่ในอัลบั้ม --</option>
-                        {#each availableAlbums as album}
-                            <option value={album.id}>{album.title}</option>
-                        {/each}
-                    </select>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎤 ศิลปิน (Artists):</label>
-                    
-                    <!-- ช่องค้นหา -->
-                    <input 
-                        type="text" 
-                        bind:value={searchArtistText} 
-                        placeholder="🔍 พิมพ์ค้นหาชื่อศิลปิน..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <!-- กล่อง Scroll ที่ขัง Checkbox ไว้ -->
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditArtists as artist}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <!-- หมายเหตุ: เปลี่ยน editTrack.artistIds เป็นชื่อตัวแปรฟอร์มของคุณ -->
-                                <input type="checkbox" bind:group={selectedArtists} value={artist.id}> {artist.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบศิลปินที่ค้นหา</p>
-                        {/each}
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Album</label>
+                        <select bind:value={selectedAlbum} class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none">
+                            <option value="">-- No Album (Single) --</option>
+                            {#each availableAlbums as album}
+                                <option value={album.id}>{album.title}</option>
+                            {/each}
+                        </select>
                     </div>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎸 แนวเพลง (Genres):</label>
-                    
-                    <input 
-                        type="text" 
-                        bind:value={searchGenreText} 
-                        placeholder="🔍 พิมพ์ค้นหาแนวเพลง..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditGenres as genre}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <!-- หมายเหตุ: เปลี่ยน editTrack.genreIds เป็นชื่อตัวแปรฟอร์มของคุณ -->
-                                <input type="checkbox" bind:group={selectedGenres} value={genre.id}> {genre.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบแนวเพลงที่ค้นหา</p>
-                        {/each}
+                <div class="space-y-6">
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Artists</label>
+                        <input type="text" bind:value={searchArtistText} placeholder="Filter..." class="bg-bg-highlight border-none rounded-xl py-2 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        <div class="h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl p-4 flex flex-col gap-2 border border-white/5">
+                            {#each filteredEditArtists as artist}
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" bind:group={selectedArtists} value={artist.id} class="rounded text-primary focus:ring-primary bg-bg-elevated border-gray-600">
+                                    <span class="text-sm">{artist.name}</span>
+                                </label>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Genres</label>
+                        <input type="text" bind:value={searchGenreText} placeholder="Filter..." class="bg-bg-highlight border-none rounded-xl py-2 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        <div class="h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl p-4 flex flex-col gap-2 border border-white/5">
+                            {#each filteredEditGenres as genre}
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox" bind:group={selectedGenres} value={genre.id} class="rounded text-primary focus:ring-primary bg-bg-elevated border-gray-600">
+                                    <span class="text-sm">{genre.name}</span>
+                                </label>
+                            {/each}
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <button onclick={saveEdit} disabled={isSavingEdit} style="padding: 12px 25px; background: #ff9800; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
-                        {isSavingEdit ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
-                    </button>
-                    <button onclick={cancelEdit} style="padding: 12px 25px; background: #ccc; border: none; border-radius: 4px; cursor: pointer;">
-                        ยกเลิก
-                    </button>
-                </div>
+            <div class="flex gap-4 mt-6">
+                <button onclick={saveEdit} disabled={isSavingEdit} class="bg-primary hover:bg-primary-hover text-black px-10 py-4 rounded-full font-black text-lg transition-all shadow-xl">
+                    {isSavingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+                <button onclick={cancelEdit} class="bg-bg-highlight text-white px-10 py-4 rounded-full font-black text-lg hover:bg-bg-surface transition-all">
+                    Cancel
+                </button>
             </div>
         </section>
     {/if}
 
-    <hr style="border: 0; border-top: 2px dashed #eee; margin-bottom: 30px;">
-
-    <!-- ================= รายการเพลงทั้งหมด ================= -->
-    <section style="background: #f9f9f9; padding: 25px; border-radius: 8px; border: 1px solid #ddd;">
-        <h2 style="margin-top: 0; color: #333;">🗂 รายการเพลงทั้งหมดในระบบ ({totalTracks} เพลง)</h2>
+    <!-- Tracks List -->
+    <section class="bg-bg-elevated p-8 rounded-3xl border border-white/5 shadow-2xl">
+        <div class="flex items-center justify-between mb-8">
+            <h2 class="text-2xl font-black">Track Library ({totalTracks})</h2>
+        </div>
         
-        <!-- 👇 แถบ Filter ค้นหาอัจฉริยะ 👇 -->
-        <form onsubmit={applyFilter} style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-            
-            <div style="flex: 1; min-width: 250px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">ค้นหาแบบอิสระ หรือ Query (เช่น artist:"Oasis")</label>
-                <input type="text" bind:value={searchQuery} placeholder='🔍 ชื่อเพลง, หรือคำสั่ง เช่น album:"Meteora"' style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+        <!-- Filters -->
+        <form onsubmit={applyFilter} class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-10 bg-bg-highlight/50 p-6 rounded-2xl border border-white/5">
+            <div class="lg:col-span-2">
+                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2 block">Search Query</label>
+                <input type="text" bind:value={searchQuery} placeholder="Title or album:..." class="w-full bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
             </div>
             
-            <div style="flex: 1; min-width: 180px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">🎤 ค้นหาศิลปิน</label>
-                <input list="artist-list" bind:value={filterArtist} placeholder="พิมพ์ชื่อศิลปิน..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+            <div>
+                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2 block">Artist</label>
+                <input list="artist-list" bind:value={filterArtist} placeholder="Artist..." class="w-full bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="artist-list">
-                    {#each availableArtists as artist}
-                        <option value={artist.name}></option>
-                    {/each}
+                    {#each availableArtists as artist}<option value={artist.name}></option>{/each}
                 </datalist>
             </div>
 
-            <div style="flex: 1; min-width: 180px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">💿 ค้นหาอัลบั้ม</label>
-                <input list="album-list" bind:value={filterAlbum} placeholder="พิมพ์ชื่ออัลบั้ม..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+            <div>
+                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2 block">Album</label>
+                <input list="album-list" bind:value={filterAlbum} placeholder="Album..." class="w-full bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="album-list">
-                    {#each availableAlbums as album}
-                        <option value={album.title}></option>
-                    {/each}
+                    {#each availableAlbums as album}<option value={album.title}></option>{/each}
                 </datalist>
             </div>
 
-            <div style="flex: 1; min-width: 180px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">🎸 ค้นหาแนวเพลง</label>
-                <input list="genre-list" bind:value={filterGenre} placeholder="พิมพ์ชื่อแนวเพลง..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
-                <datalist id="genre-list">
-                    {#each availableGenres as genre}
-                        <option value={genre.name}></option>
-                    {/each}
-                </datalist>
-            </div>
-
-            <div style="display: flex; align-items: flex-end;">
-                <button type="submit" style="padding: 10px 20px; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; height: 40px;">ค้นหา</button>
+            <div class="flex items-end">
+                <button type="submit" class="w-full bg-white text-black py-3 rounded-xl font-black hover:scale-105 transition-transform shadow-lg">Filter</button>
             </div>
         </form>
 
-        <!-- ตารางเพลง -->
-        {#if allTracks.length > 0}
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                <!-- (โค้ดลูป #each allTracks เหมือนเดิมเป๊ะเลยครับ) -->
-                {#each allTracks as track}
-                    <div style="background: #fff; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; border-left: {editingTrackId === track.id ? '4px solid #ff9800' : '4px solid transparent'};">
-                        <div>
-                            <p style="margin: 0; font-weight: bold; font-size: 1.1em;">{track.title}</p>
-                            <p style="margin: 3px 0; font-size: 0.85em; color: #1db954;">
-                                🎤 {track.artists?.length > 0 ? track.artists.map((a: any) => a.name).join(', ') : '-'} | 
-                                🎸 {track.genres?.length > 0 ? track.genres.map((g: any) => g.name).join(', ') : '-'} | 
-                                💿 {track.album ? track.album.title : 'Single'}
-                            </p>
-                            <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">ยอดวิว: {track.viewCount || track.view_count} | ความยาว: {track.duration}</p>
+        <!-- Tracks Table -->
+        <div class="flex flex-col gap-2">
+            {#each allTracks as track}
+                <div class="group flex items-center justify-between p-4 bg-bg-highlight/30 hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 transition-all {editingTrackId === track.id ? 'border-primary' : ''}">
+                    <div class="flex flex-col gap-1 min-w-0">
+                        <p class="font-bold text-base truncate">{track.title}</p>
+                        <div class="flex items-center gap-2 text-xs">
+                            <span class="text-primary font-bold">🎤 {track.artists?.length > 0 ? track.artists.map((a: any) => a.name).join(', ') : '-'}</span>
+                            <span class="text-text-muted">•</span>
+                            <span class="text-text-muted font-bold">💿 {track.album ? track.album.title : 'Single'}</span>
                         </div>
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick={() => startEdit(track)} style="padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">แก้ไข</button>
-                            <button onclick={() => handleDelete(track.id, track.title)} style="padding: 8px 15px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">ลบ</button>
-                        </div>
+                        <p class="text-[10px] text-text-muted/60 font-black tracking-widest uppercase mt-1">
+                            Views: {track.viewCount || track.view_count} • Duration: {track.duration}
+                        </p>
                     </div>
-                {/each}
-            </div>
+                    <div class="flex gap-2 shrink-0 ml-4">
+                        <button onclick={() => startEdit(track)} class="bg-indigo-600/20 text-indigo-300 px-4 py-2 rounded-lg text-xs font-black hover:bg-indigo-600 hover:text-white transition-all">EDIT</button>
+                        <button onclick={() => handleDelete(track.id, track.title)} class="bg-red-900/20 text-red-400 px-4 py-2 rounded-lg text-xs font-black hover:bg-red-600 hover:text-white transition-all">DELETE</button>
+                    </div>
+                </div>
+            {:else}
+                <div class="py-20 text-center text-text-muted italic">No tracks found matching your filters.</div>
+            {/each}
+        </div>
 
-            <!-- 👇 ปุ่มแบ่งหน้า (Pagination) 👇 -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
+        <!-- Pagination -->
+        {#if totalPages > 1}
+            <div class="flex justify-between items-center mt-10 pt-8 border-t border-white/5">
                 <button 
                     disabled={currentPage === 1} 
                     onclick={() => loadTracks(currentPage - 1)}
-                    style="padding: 8px 15px; background: {currentPage === 1 ? '#ccc' : '#1db954'}; color: white; border: none; border-radius: 4px; cursor: pointer;"
-                >
-                    &laquo; หน้าก่อนหน้า
-                </button>
-                <span style="font-weight: bold;">หน้า {currentPage} จาก {totalPages}</span>
+                    class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
+                >Previous</button>
+                <span class="text-sm font-bold text-text-muted tracking-widest uppercase">Page {currentPage} of {totalPages}</span>
                 <button 
                     disabled={currentPage === totalPages} 
                     onclick={() => loadTracks(currentPage + 1)}
-                    style="padding: 8px 15px; background: {currentPage === totalPages ? '#ccc' : '#1db954'}; color: white; border: none; border-radius: 4px; cursor: pointer;"
-                >
-                    หน้าถัดไป &raquo;
-                </button>
+                    class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
+                >Next</button>
             </div>
-        {:else}
-            <p style="color: #666; text-align: center; padding: 20px;">ไม่พบเพลงที่ค้นหา</p>
         {/if}
     </section>
-</main>
+</div>
 
 <style>
-    /* สไตล์สำหรับปุ่มเมนู Admin Hub */
+    @reference "../layout.css";
+
     .nav-module-btn {
-        padding: 10px 16px;
-        background: #2a2a2a;
-        color: white;
-        text-decoration: none;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 0.9em;
-        border: 1px solid #444;
-        transition: all 0.2s;
-        border-left: 4px solid var(--btn-color);
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        @apply px-4 py-3 bg-bg-highlight text-white rounded-xl font-black text-sm border border-white/5 transition-all flex items-center gap-2 border-l-4;
     }
     
     .nav-module-btn:hover {
-        background: #333;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        border-color: var(--btn-color);
+        @apply bg-white/10 -translate-y-1 shadow-xl;
     }
     
     .nav-module-btn:active {
-        transform: translateY(0);
+        @apply translate-y-0;
     }
 </style>

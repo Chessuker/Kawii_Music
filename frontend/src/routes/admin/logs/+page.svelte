@@ -6,12 +6,12 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
 
-  // --- States สำหรับการค้นหาและกรองข้อมูล ---
+  // --- Search and Filter States ---
   let searchQuery = $state('');
   let filterRole = $state('all');
   let filterAction = $state('all');
 
-  // --- States สำหรับระบบแบ่งหน้า (Pagination) ---
+  // --- Pagination States ---
   let currentPage = $state(1);
   let itemsPerPage = 15;
 
@@ -30,13 +30,13 @@
         error = data.error;
       }
     } catch (err: any) {
-      error = "ไม่สามารถดึงข้อมูล Log ได้";
+      error = "Unable to fetch logs";
     } finally {
       loading = false;
     }
   }
 
-  // --- ระบบ Filter แบบ Real-time (ทำงานทันทีที่พิมพ์หรือเลือก Dropdown) ---
+  // --- Real-time Filter ---
   let filteredLogs = $derived(logs.filter(log => {
     const matchSearch = 
       (log.actorName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || 
@@ -47,18 +47,16 @@
     return matchSearch && matchRole && matchAction;
   }));
 
-  // --- รีเซ็ตหน้ากลับไปหน้าที่ 1 เสมอเวลา Filter ข้อมูล ---
   $effect(() => {
-    searchQuery; filterRole; filterAction; // จับตาดูตัวแปรเหล่านี้
+    searchQuery; filterRole; filterAction;
     currentPage = 1; 
   });
 
-  // --- คำนวณข้อมูลสำหรับแสดงผลในหน้านั้นๆ ---
   let totalPages = $derived(Math.ceil(filteredLogs.length / itemsPerPage) || 1);
   let paginatedLogs = $derived(filteredLogs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage));
 
   function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleString('th-TH', {
+    return new Date(dateStr).toLocaleString(undefined, {
       year: 'numeric', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
     });
@@ -72,42 +70,47 @@
       case 'login': return '#3b82f6'; // blue
       case 'logout': return '#6b7280'; // gray
       case 'ban': return '#991b1b'; // dark red
-      default: return '#8b5cf6'; // purple
+      default: return '#a855f7'; // purple
     }
   }
 </script>
 
-<main class="admin-container">
-  <div class="header-nav">
-    <a href="/admin" class="back-link">← กลับไปหน้า Admin Dashboard</a>
-  </div>
+<div class="max-w-6xl mx-auto flex flex-col gap-10">
+  <nav>
+    <a href="/admin" class="text-primary hover:underline font-bold flex items-center gap-2">
+      <span>&lsaquo;</span> Back to Dashboard
+    </a>
+  </nav>
   
-  <header style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+  <header class="flex flex-col md:flex-row md:items-end justify-between gap-6">
     <div>
-      <h1>🛡️ Security & Audit Logs</h1>
-      <p>ตรวจสอบประวัติการใช้งาน การแก้ไขระบบ และพฤติกรรมของผู้ใช้</p>
+      <h1 class="text-4xl font-black tracking-tight mb-2">🛡️ Security & Audit Logs</h1>
+      <p class="text-text-muted font-medium">Review system activity, edits, and user behavior</p>
     </div>
-    <button onclick={fetchLogs} class="refresh-btn">
-      🔄 รีเฟรชข้อมูล
+    <button onclick={fetchLogs} class="bg-bg-elevated hover:bg-bg-highlight text-white px-6 py-3 rounded-full font-bold transition-all border border-white/5 shadow-xl">
+      🔄 Refresh Data
     </button>
   </header>
 
-  <div class="controls-panel">
-    <input 
-      type="text" 
-      bind:value={searchQuery} 
-      placeholder="🔍 ค้นหาชื่อผู้ใช้ หรือ รายละเอียด..." 
-      class="search-input"
-    />
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
+    <div class="md:col-span-1 relative group">
+      <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors">🔍</span>
+      <input 
+        type="text" 
+        bind:value={searchQuery} 
+        placeholder="Search users or details..." 
+        class="w-full bg-bg-highlight border-none rounded-xl py-3 pl-12 pr-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all"
+      />
+    </div>
     
-    <select bind:value={filterRole} class="filter-select">
-      <option value="all">👥 ทุก Role</option>
-      <option value="admin">🛡️ Admin เท่านั้น</option>
-      <option value="user">👤 User ทั่วไป</option>
+    <select bind:value={filterRole} class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer">
+      <option value="all">👥 All Roles</option>
+      <option value="admin">🛡️ Admins Only</option>
+      <option value="user">👤 Users Only</option>
     </select>
 
-    <select bind:value={filterAction} class="filter-select">
-      <option value="all">⚡ ทุก Action</option>
+    <select bind:value={filterAction} class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer">
+      <option value="all">⚡ All Actions</option>
       <option value="login">Login</option>
       <option value="logout">Logout</option>
       <option value="create">Create</option>
@@ -118,44 +121,49 @@
   </div>
 
   {#if loading}
-    <div class="status">กำลังโหลด Logs...</div>
+    <div class="flex justify-center items-center h-64">
+        <p class="text-text-muted animate-pulse font-bold text-xl">Loading security logs...</p>
+    </div>
   {:else if error}
-    <div class="status error">{error}</div>
+    <div class="bg-red-500/10 text-red-400 p-8 rounded-2xl border border-red-500/20 text-center font-bold">
+        {error}
+    </div>
   {:else}
-    <div class="logs-table-wrapper">
-      <table class="logs-table">
+    <div class="bg-bg-elevated rounded-2xl border border-white/5 shadow-2xl overflow-hidden overflow-x-auto">
+      <table class="w-full border-collapse text-left min-w-[800px]">
         <thead>
-          <tr>
-            <th>เวลา (Timestamp)</th>
-            <th>ผู้กระทำ (Actor)</th>
-            <th>บทบาท (Role)</th>
-            <th>การกระทำ (Action)</th>
-            <th>รายละเอียด (Details)</th>
+          <tr class="bg-bg-highlight/50 text-xs font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
+            <th class="p-6">Timestamp</th>
+            <th class="p-6">Actor</th>
+            <th class="p-6 text-center">Role</th>
+            <th class="p-6 text-center">Action</th>
+            <th class="p-6">Details</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody class="divide-y divide-white/5">
           {#if paginatedLogs.length === 0}
             <tr>
-              <td colspan="5" style="text-align: center; padding: 3rem; color: #888;">
-                ไม่พบประวัติที่ตรงกับการค้นหา
+              <td colspan="5" class="p-20 text-center text-text-muted italic">
+                No logs found matching your criteria.
               </td>
             </tr>
           {:else}
             {#each paginatedLogs as log (log.id)}
-              <tr>
-                <td class="time">{formatDate(log.createdAt)}</td>
-                <td class="actor">{log.actorName || 'System/Unknown'}</td>
-                <td>
-                  <span class="role-badge" class:role-admin={log.actorType === 'admin'}>
-                    {log.actorType.toUpperCase()}
+              <tr class="hover:bg-white/5 transition-colors">
+                <td class="p-6 text-xs font-mono text-text-muted">{formatDate(log.createdAt)}</td>
+                <td class="p-6 font-bold text-white">{log.actorName || 'System/Unknown'}</td>
+                <td class="p-6 text-center">
+                  <span class="text-[10px] font-black tracking-widest px-3 py-1 rounded-full uppercase {log.actorType === 'admin' ? 'bg-red-500/20 text-red-400' : 'bg-bg-highlight text-text-muted'}">
+                    {log.actorType}
                   </span>
                 </td>
-                <td>
-                  <span class="action-badge" style="background: {getActionColor(log.actionType)}15; color: {getActionColor(log.actionType)}; border: 1px solid {getActionColor(log.actionType)}40;">
-                    {log.actionType.toUpperCase()}
+                <td class="p-6 text-center">
+                  <span class="text-[10px] font-black tracking-widest px-3 py-1 rounded-full uppercase border" 
+                        style="background: {getActionColor(log.actionType)}15; color: {getActionColor(log.actionType)}; border-color: {getActionColor(log.actionType)}40;">
+                    {log.actionType}
                   </span>
                 </td>
-                <td class="detail">{log.actionDetail || '-'}</td>
+                <td class="p-6 text-sm text-text-muted leading-relaxed">{log.actionDetail || '-'}</td>
               </tr>
             {/each}
           {/if}
@@ -163,177 +171,30 @@
       </table>
     </div>
 
-    <div class="pagination">
-      <p style="margin: 0; color: #666; font-size: 0.9rem;">
-        แสดง {filteredLogs.length > 0 ? ((currentPage - 1) * itemsPerPage) + 1 : 0} 
-        ถึง {Math.min(currentPage * itemsPerPage, filteredLogs.length)} 
-        จากทั้งหมด <strong>{filteredLogs.length}</strong> รายการ
+    <div class="flex flex-col md:flex-row justify-between items-center gap-6 mt-4 pb-10">
+      <p class="text-xs font-bold text-text-muted uppercase tracking-widest">
+        Showing {filteredLogs.length > 0 ? ((currentPage - 1) * itemsPerPage) + 1 : 0} 
+        - {Math.min(currentPage * itemsPerPage, filteredLogs.length)} 
+        of <span class="text-white">{filteredLogs.length}</span> records
       </p>
       
-      <div class="page-controls">
+      <div class="flex items-center gap-4">
         <button 
           disabled={currentPage === 1} 
           onclick={() => currentPage -= 1}
+          class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
         >
-          &laquo; ก่อนหน้า
+          &laquo; Previous
         </button>
-        <span class="page-info">หน้า {currentPage} / {totalPages}</span>
+        <span class="text-sm font-bold text-text-muted uppercase tracking-widest">Page {currentPage} / {totalPages}</span>
         <button 
           disabled={currentPage === totalPages} 
           onclick={() => currentPage += 1}
+          class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
         >
-          ถัดไป &raquo;
+          Next &raquo;
         </button>
       </div>
     </div>
   {/if}
-</main>
-
-<style>
-  .admin-container {
-    padding: 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    font-family: system-ui, -apple-system, sans-serif;
-    color: #333;
-  }
-  .header-nav { margin-bottom: 2rem; }
-  .back-link {
-    color: #1db954;
-    text-decoration: none;
-    font-weight: bold;
-    padding: 8px 15px;
-    background: #e8f5e9;
-    border-radius: 8px;
-  }
-  .back-link:hover { background: #c8e6c9; }
-  
-  h1 { font-size: 2rem; margin: 0 0 0.5rem 0; color: #1db954; }
-  header p { color: #666; margin: 0; }
-  
-  .refresh-btn {
-    padding: 10px 20px;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: bold;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  }
-  .refresh-btn:hover { background: #f9f9f9; border-color: #1db954; color: #1db954; }
-
-  /* Control Panel Styles */
-  .controls-panel {
-    display: flex;
-    gap: 15px;
-    margin-bottom: 1.5rem;
-    background: #f8f9fa;
-    padding: 15px;
-    border-radius: 12px;
-    border: 1px solid #eee;
-    flex-wrap: wrap;
-  }
-  .search-input {
-    flex: 1;
-    min-width: 250px;
-    padding: 10px 15px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    outline: none;
-  }
-  .search-input:focus { border-color: #1db954; }
-  .filter-select {
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    background: #fff;
-    outline: none;
-    cursor: pointer;
-  }
-
-  .status { text-align: center; padding: 3rem; color: #666; font-size: 1.1rem; }
-  .error { color: #dc2626; }
-  
-  /* Table Styles */
-  .logs-table-wrapper {
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-    overflow-x: auto;
-    border: 1px solid #eee;
-  }
-  .logs-table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left;
-  }
-  .logs-table th {
-    background: #f8f9fa;
-    padding: 1.2rem 1rem;
-    font-weight: bold;
-    color: #444;
-    border-bottom: 2px solid #eaeaea;
-  }
-  .logs-table td {
-    padding: 1rem;
-    border-bottom: 1px solid #f5f5f5;
-    vertical-align: middle;
-  }
-  .logs-table tr:hover { background: #fafafa; }
-  
-  .time { color: #777; font-size: 0.9rem; white-space: nowrap; }
-  .actor { font-weight: bold; color: #222; }
-  .detail { color: #555; max-width: 350px; line-height: 1.4; }
-  
-  .role-badge {
-    padding: 0.3rem 0.8rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: bold;
-    background: #e5e7eb;
-    color: #374151;
-  }
-  .role-admin { background: #fee2e2; color: #991b1b; }
-  
-  .action-badge {
-    padding: 0.4rem 0.8rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: bold;
-  }
-
-  /* Pagination Styles */
-  .pagination {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 1.5rem;
-    padding: 0 10px;
-  }
-  .page-controls {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-  }
-  .page-controls button {
-    padding: 8px 15px;
-    border: 1px solid #ccc;
-    background: #fff;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: bold;
-    color: #333;
-  }
-  .page-controls button:hover:not(:disabled) {
-    background: #f0f0f0;
-    border-color: #999;
-  }
-  .page-controls button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .page-info {
-    font-weight: bold;
-    color: #555;
-  }
-</style>
+</div>
