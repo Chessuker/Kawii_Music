@@ -16,6 +16,36 @@
     let duration = $state(0);
     let volume = $state(0.6);
 
+    // 3. State สำหรับ Subscription Info
+    let subInfo = $state<any>(null);
+
+    // ดึงข้อมูล Subscription เมื่อ User ล็อกอิน
+    $effect(() => {
+        if (authState.currentUser?.id) {
+            fetchSubStatus(authState.currentUser.id);
+        } else {
+            subInfo = null;
+        }
+    });
+
+    async function fetchSubStatus(userId: string) {
+        try {
+            const res = await fetch(`http://127.0.0.1:8787/api/users/${userId}/subscription`);
+            const result = await res.json();
+            if (result.success && result.isActive) {
+                // คำนวณวันที่เหลือ
+                const expiryDate = new Date(result.data.userSub.expiryDate);
+                const today = new Date();
+                const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                subInfo = { 
+                    ...result.data, 
+                    daysRemaining,
+                    isExpiringSoon: daysRemaining <= 7 && daysRemaining > 0
+                };
+            }
+        } catch (e) { console.error(e); }
+    }
+
     // 👇 เปลี่ยนมาคุมแท็ก Audio แบบตรงไปตรงมา
     function togglePlay() {
         if (!audioRef) return;
@@ -50,6 +80,13 @@
         return `${m}:${s.toString().padStart(2, '0')}`;
     }
 </script>
+
+{#if subInfo?.isExpiringSoon}
+    <div class="expiry-banner">
+        ⚠️ Premium ของคุณกำลังจะหมดอายุใน <strong>{subInfo.daysRemaining} วัน</strong> 
+        <a href="/subscriptions">ต่ออายุตอนนี้เพื่อฟังเพลงได้อย่างต่อเนื่อง!</a>
+    </div>
+{/if}
 
 <nav style="background: #121212; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; color: white;">
     
@@ -147,3 +184,23 @@
         </div>
     </div>
 {/if}
+
+<style>
+    /* Style สำหรับ Subscription Expiry Banner */
+    .expiry-banner {
+        background: #ffcc00;
+        color: #000;
+        text-align: center;
+        padding: 10px;
+        font-size: 0.9em;
+        font-weight: bold;
+        position: sticky;
+        top: 0;
+        z-index: 10000;
+    }
+    .expiry-banner a {
+        color: #000;
+        text-decoration: underline;
+        margin-left: 10px;
+    }
+</style>

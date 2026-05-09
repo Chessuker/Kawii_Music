@@ -102,10 +102,22 @@
     {:else}
         
         {#if currentSub}
-            <div class="active-sub-card">
-                <div class="badge">👑 Premium Active</div>
-                <h2 style="margin-top: 10px;">แพ็กเกจปัจจุบัน: {currentSub.plan.name}</h2>
-                <p>ใช้งานได้ถึงวันที่ <strong>{formatDate(currentSub.userSub.expiryDate)}</strong></p>
+            <div class="active-sub-card" class:warning={currentSub.isExpiringSoon}>
+                <div class="badge" class:expiring={currentSub.isExpiringSoon}>
+                    {currentSub.isExpiringSoon ? '⏳ ใกล้หมดอายุ' : '👑 Premium Active'}
+                </div>
+                <h2 style="margin-top: 15px;">แพ็กเกจปัจจุบัน: {currentSub.plan.name}</h2>
+                <p>
+                    {currentSub.isExpiringSoon 
+                        ? `รีบเลย! เหลือเวลาอีกเพียง ${currentSub.daysRemaining} วัน` 
+                        : `ใช้งานได้ถึงวันที่ ${formatDate(currentSub.userSub.expiryDate)}`}
+                </p>
+                
+                {#if currentSub.isExpiringSoon}
+                    <div class="urgent-action">
+                        <p>อย่าปล่อยให้เสียงเพลงหยุดลง ต่ออายุแพ็กเกจด้านล่างได้ทันที</p>
+                    </div>
+                {/if}
             </div>
         {/if}
 
@@ -189,6 +201,10 @@
     }
     .active-sub-card h2 { margin: 0 0 0.5rem 0; color: #fff; }
     .active-sub-card p { color: #aaa; margin: 0; }
+    .active-sub-card.warning {
+        border: 2px solid #ffcc00;
+        background: rgba(255, 204, 0, 0.1);
+    }
     .badge {
         display: inline-block;
         background: #1db954;
@@ -198,6 +214,15 @@
         font-weight: bold;
         font-size: 0.9rem;
         box-shadow: 0 4px 10px rgba(29, 185, 84, 0.3);
+    }
+    .badge.expiring {
+        background: #ffcc00;
+        color: #000;
+    }
+    .urgent-action {
+        margin-top: 15px;
+        font-weight: bold;
+        color: #ffcc00;
     }
 
     .plans-grid {

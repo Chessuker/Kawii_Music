@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
-import { users, tracks, histories, artists, genres, trackArtists, trackGenres, playlists, playlistTracks, albums, trackAlbums, likeSongs, items, artistItems, purchaseTransactions, transactionItems, subscriptions, userSubscriptions, artistFollows, admins, logs } from './schema';
+import { users, tracks, histories, artists, genres, trackArtists, trackGenres, playlists, playlistTracks, albums, trackAlbums, likeSongs, items, artistItems, purchaseTransactions, transactionItems, subscriptions, userSubscriptions, artistFollows, admins, logs, albumArtists } from './schema';
 import { eq, or, and, ilike, inArray, sql as drizzleSql, desc, asc } from 'drizzle-orm';
 
 export type Env = {
@@ -372,7 +372,7 @@ app.post('/api/auth/register', async (c) => {
   }
 });
 
-// --- 10. API เข้าสู่ระบบ (Login) ---
+// --- 10. API เข้าสู่ระบบ (อัปเกรดการเช็ก Status) ---
 app.post('/api/auth/login', async (c) => {
   try {
     const { username, password } = await c.req.json();
@@ -383,15 +383,22 @@ app.post('/api/auth/login', async (c) => {
     if (targetUsers.length === 0) return c.json({ error: 'ไม่พบผู้ใช้งานนี้' }, 401);
 
     const user = targetUsers[0];
-    const hashedPassword = await hashPassword(password);
 
+    // 👇 1. ตรวจสอบสถานะบัญชีก่อน (อิงตาม ENUM account_status_enum)
+    if (user.accountStatus === 'suspended') {
+      return c.json({ error: 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว กรุณาติดต่อฝ่ายสนับสนุน' }, 403);
+    }
+    if (user.accountStatus === 'deleted') {
+      return c.json({ error: 'บัญชีนี้ถูกลบออกจากระบบแล้ว' }, 410);
+    }
+
+    const hashedPassword = await hashPassword(password);
     if (user.passwordHash !== hashedPassword) {
       return c.json({ error: 'รหัสผ่านไม่ถูกต้อง' }, 401);
     }
 
     await insertAuditLog(db, 'user', 'login', `User ${user.username} logged in`, user.id);
 
-    // ส่งข้อมูลผู้ใช้กลับไป (ไม่ส่งรหัสผ่านกลับไปเด็ดขาด)
     return c.json({ 
       success: true, 
       user: { id: user.id, username: user.username, email: user.email, displayName: user.displayName, pfpUrl: user.pfpUrl || (user as any).pfp_url } 
@@ -1310,7 +1317,7 @@ app.post('/api/subscriptions/subscribe', async (c) => {
   }
 });
 
-// --- 31. API ตรวจสอบสถานะสมาชิก (Active Subscription) ---
+// --- 31. API ตรวจสอบสถานะสมาชิก (อัปเกรด: คำนวณวันหมดอายุ) ---
 app.get('/api/users/:id/subscription', async (c) => {
   try {
     const userId = c.req.param('id');
@@ -1336,7 +1343,23 @@ app.get('/api/users/:id/subscription', async (c) => {
       return c.json({ success: true, data: null, isActive: false });
     }
 
-    return c.json({ success: true, data: activeSubs[0], isActive: true });
+    const sub = activeSubs[0];
+    const expiryDate = new Date(sub.userSub.expiryDate);
+    const now = new Date();
+    
+    // คำนวณจำนวนวันที่เหลือ
+    const diffTime = expiryDate.getTime() - now.getTime();
+    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    return c.json({ 
+      success: true, 
+      data: {
+        ...sub,
+        daysRemaining,
+        isExpiringSoon: daysRemaining <= 7 // แจ้งเตือนถ้าเหลือน้อยกว่าหรือเท่ากับ 7 วัน
+      }, 
+      isActive: true 
+    });
   } catch (error) {
     console.error("🔥 Check Subscription Error:", error);
     return c.json({ success: false, error: String(error) }, 500);
@@ -1650,6 +1673,169 @@ app.get('/api/artists/:id', async (c) => {
   }
 });
 
+// --- API ดึงประวัติการซื้อสินค้าของ User ---
+app.get('/api/users/:id/purchases', async (c) => {
+  try {
+    const userId = c.req.param('id');
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // ดึง Transaction ทั้งหมดของ User นี้
+    const transactions = await db.select()
+      .from(purchaseTransactions)
+      .where(eq(purchaseTransactions.userId, userId))
+      .orderBy(desc(purchaseTransactions.timePurchase));
+
+    if (transactions.length === 0) {
+      return c.json({ success: true, data: [] });
+    }
+
+    const tranIds = transactions.map(t => t.id);
+
+    // ดึงรายการสินค้าในทุก Transaction พร้อมข้อมูลชื่อสินค้าจากตาราง items
+    const allItemsInTrans = await db.select({
+      tranId: transactionItems.tranId,
+      itemId: transactionItems.itemId,
+      itemName: items.name,
+      itemImg: items.imgUrl,
+      unitPrice: transactionItems.unitPrice,
+      quantity: transactionItems.quantity,
+      extendedPrice: transactionItems.extendedPrice
+    })
+    .from(transactionItems)
+    .innerJoin(items, eq(transactionItems.itemId, items.id))
+    .where(inArray(transactionItems.tranId, tranIds));
+
+    // ประกอบร่างข้อมูล: ยัด Items ลงไปในแต่ละ Transaction
+    const result = transactions.map(t => {
+      return {
+        ...t,
+        items: allItemsInTrans.filter(item => item.tranId === t.id)
+      };
+    });
+
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    console.error("🔥 Get Purchases Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- API สำหรับ Admin เปลี่ยนสถานะผู้ใช้งาน ---
+app.put('/api/admin/users/:id/status', async (c) => {
+  try {
+    const userId = c.req.param('id');
+    const { status, adminId } = await c.req.json(); // รับสถานะใหม่และ ID ของแอดมินที่ทำรายการ
+    
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // อัปเดตสถานะในตาราง users
+    await db.update(users)
+      .set({ accountStatus: status })
+      .where(eq(users.id, userId));
+
+    // บันทึกลง Audit Log เพื่อเป็นหลักฐานว่าแอดมินคนไหนเป็นคนแบน
+    await insertAuditLog(db, 'admin', 'ban', `Changed status of user ${userId} to ${status}`, undefined, adminId);
+
+    return c.json({ success: true, message: 'อัปเดตสถานะผู้ใช้เรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Update User Status Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 37. API Admin: สร้างสินค้าใหม่ (Create Merch) ---
+app.post('/api/admin/merch', async (c) => {
+  try {
+    const { name, price, imgUrl, artistIds, adminId } = await c.req.json();
+    if (!name || !price) return c.json({ error: 'กรุณากรอกชื่อและราคาสินค้า' }, 400);
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // 1. สร้างสินค้าลงตาราง items
+    const [newItem] = await db.insert(items).values({
+      name,
+      price: String(price), // แปลงเป็น String เพราะ Schema เป็น Decimal/Numeric
+      imgUrl: imgUrl || null
+    }).returning();
+
+    // 2. ผูกสินค้าเข้ากับศิลปิน (ตาราง artist_items)
+    if (artistIds && artistIds.length > 0) {
+      await db.insert(artistItems).values(
+        artistIds.map((id: string) => ({ itemId: newItem.id, artistId: id }))
+      );
+    }
+
+    // 3. บันทึก Audit Log
+    await insertAuditLog(db, 'admin', 'create', `Created merch item: ${name}`, undefined, adminId);
+
+    return c.json({ success: true, data: newItem });
+  } catch (error) {
+    console.error("🔥 Create Merch Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 38. API Admin: แก้ไขสินค้า (Update Merch) ---
+app.put('/api/admin/merch/:id', async (c) => {
+  try {
+    const itemId = c.req.param('id');
+    const { name, price, imgUrl, artistIds, adminId } = await c.req.json();
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // 1. อัปเดตข้อมูลหลัก
+    await db.update(items)
+      .set({ name, price: String(price), imgUrl: imgUrl || null })
+      .where(eq(items.id, itemId));
+
+    // 2. รีเซ็ตศิลปินที่ผูกไว้ (ลบของเก่า Insert ของใหม่)
+    await db.delete(artistItems).where(eq((artistItems as any).itemId || (artistItems as any).item_id, itemId));
+    if (artistIds && artistIds.length > 0) {
+      await db.insert(artistItems).values(
+        artistIds.map((id: string) => ({ itemId, artistId: id }))
+      );
+    }
+
+    await insertAuditLog(db, 'admin', 'update', `Updated merch item: ${itemId}`, undefined, adminId);
+
+    return c.json({ success: true, message: 'อัปเดตสินค้าเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Update Merch Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 39. API Admin: ลบสินค้า (Delete Merch) ---
+app.delete('/api/admin/merch/:id', async (c) => {
+  try {
+    const itemId = c.req.param('id');
+    const { adminId } = await c.req.json();
+    
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // ลบสินค้าออก (ON DELETE RESTRICT จะทำงานถ้ารหัสสินค้านี้อยู่ใน transaction_items)
+    await db.delete(items).where(eq(items.id, itemId));
+    await insertAuditLog(db, 'admin', 'delete', `Deleted merch item: ${itemId}`, undefined, adminId);
+
+    return c.json({ success: true, message: 'ลบสินค้าสำเร็จ' });
+  } catch (error: any) {
+    console.error("🔥 Delete Merch Error:", error);
+    // ดักจับ Error จาก PostgreSQL Constraint (ON DELETE RESTRICT)
+    if (String(error).includes('transaction_items_item_id_fkey') || String(error).includes('violates foreign key constraint')) {
+      return c.json({ 
+        success: false, 
+        error: 'ไม่สามารถลบสินค้านี้ได้ เนื่องจากมีประวัติลูกค้าสั่งซื้อไปแล้ว (ข้อกำหนดทางบัญชี)' 
+      }, 400);
+    }
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 // --- ฟังก์ชันช่วยเหลือสำหรับบันทึก Audit Log ให้อัตโนมัติ ---
 async function insertAuditLog(
   db: any, 
@@ -1671,5 +1857,151 @@ async function insertAuditLog(
     console.error("🔥 Auto Log Error:", error);
   }
 }
+
+// --- API สำหรับวิเคราะห์สถิติการฟังของผู้ใช้ (Listening Analytics) ---
+app.get('/api/users/:id/analytics', async (c) => {
+  try {
+    const userId = c.req.param('id');
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // 1. ดึง Top 5 Artists (ใช้ Index ช่วยกรอง user_id ได้ไวมาก)
+    const topArtists = await db.select({
+      name: artists.name,
+      playCount: drizzleSql`count(*)`.mapWith(Number)
+    })
+    .from(histories)
+    .innerJoin(tracks, eq(histories.trackId, tracks.id))
+    .innerJoin(trackArtists, eq(tracks.id, trackArtists.trackId))
+    .innerJoin(artists, eq(trackArtists.artistId, artists.id))
+    .where(eq(histories.userId, userId))
+    .groupBy(artists.id, artists.name)
+    .orderBy(desc(drizzleSql`count(*)`))
+    .limit(5);
+
+    // 2. ดึง Top 5 Genres
+    const topGenres = await db.select({
+      name: genres.name,
+      playCount: drizzleSql`count(*)`.mapWith(Number)
+    })
+    .from(histories)
+    .innerJoin(tracks, eq(histories.trackId, tracks.id))
+    .innerJoin(trackGenres, eq(tracks.id, trackGenres.trackId))
+    .innerJoin(genres, eq(trackGenres.genreId, genres.id))
+    .where(eq(histories.userId, userId))
+    .groupBy(genres.id, genres.name)
+    .orderBy(desc(drizzleSql`count(*)`))
+    .limit(5);
+
+    // 3. ดึง Trend การฟังในช่วง 7 วันล่าสุด (Grouping by Day)
+    const listeningTrend = await db.select({
+      date: drizzleSql`DATE(listened_at)`.mapWith(String),
+      count: drizzleSql`count(*)`.mapWith(Number)
+    })
+    .from(histories)
+    .where(and(
+      eq(histories.userId, userId),
+      drizzleSql`listened_at > now() - interval '7 days'`
+    ))
+    .groupBy(drizzleSql`DATE(listened_at)`)
+    .orderBy(asc(drizzleSql`DATE(listened_at)`));
+
+    return c.json({ 
+      success: true, 
+      data: { topArtists, topGenres, listeningTrend } 
+    });
+  } catch (error) {
+    console.error("🔥 Analytics Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 40. API Admin: ดึงรายการสั่งซื้อทั้งหมด (All Orders) ---
+app.get('/api/admin/orders', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // ดึงบิลทั้งหมด พร้อม JOIN หาชื่อผู้สั่งซื้อ
+    const allOrders = await db.select({
+      order: purchaseTransactions,
+      user: { 
+        id: users.id, 
+        username: users.username, 
+        displayName: users.displayName 
+      }
+    })
+    .from(purchaseTransactions)
+    .innerJoin(users, eq(purchaseTransactions.userId, users.id))
+    .orderBy(desc(purchaseTransactions.timePurchase));
+
+    return c.json({ success: true, data: allOrders });
+  } catch (error) {
+    console.error("🔥 Get All Orders Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 41. API Admin: ยกเลิกคำสั่งซื้อ (Cancel / Delete Order) ---
+app.delete('/api/admin/orders/:id', async (c) => {
+  try {
+    const orderId = c.req.param('id');
+    const { adminId } = await c.req.json();
+    
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // เช็กว่าบิลนี้มีอยู่จริงไหมก่อนลบ
+    const targetOrder = await db.select().from(purchaseTransactions).where(eq(purchaseTransactions.id, orderId));
+    if (targetOrder.length === 0) {
+      return c.json({ success: false, error: 'ไม่พบคำสั่งซื้อนี้ในระบบ' }, 404);
+    }
+
+    // 1. ลบ Transaction หลัก (transaction_items จะถูกลบตามอัตโนมัติด้วย ON DELETE CASCADE)
+    await db.delete(purchaseTransactions).where(eq(purchaseTransactions.id, orderId));
+
+    // 2. บันทึกหลักฐานลง Audit Log
+    const total = targetOrder[0].totalPrice;
+    await insertAuditLog(
+      db, 
+      'admin', 
+      'delete', 
+      `Cancelled order ${orderId.slice(0, 8)} (Total: ฿${total})`, 
+      undefined, 
+      adminId
+    );
+
+    return c.json({ success: true, message: 'ยกเลิกคำสั่งซื้อสำเร็จ' });
+  } catch (error) {
+    console.error("🔥 Cancel Order Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 42. API Admin: จัดอันดับศิลปินยอดนิยม (Social Follows Analytics) ---
+app.get('/api/admin/artists/ranking', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // ดึงข้อมูลศิลปิน พร้อมนับจำนวนผู้ติดตาม 
+    // (ใช้ LEFT JOIN เพื่อให้ดึงศิลปินที่ยังไม่มีคนตามมาแสดงด้วย และเรียงตามลำดับจากมากไปน้อย)
+    const ranking = await db.select({
+      id: artists.id,
+      name: artists.name,
+      followerCount: drizzleSql`count(${artistFollows.userId})`.mapWith(Number)
+    })
+    .from(artists)
+    .leftJoin(artistFollows, eq(artists.id, artistFollows.artistId))
+    .groupBy(artists.id, artists.name)
+    .orderBy(desc(drizzleSql`count(${artistFollows.userId})`))
+    .limit(20); // แสดง Top 20
+
+    return c.json({ success: true, data: ranking });
+  } catch (error) {
+    console.error("🔥 Artist Ranking Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
 
 export default app;

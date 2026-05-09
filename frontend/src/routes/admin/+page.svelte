@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
+    import { adminAuthState } from '$lib/adminAuth.svelte';
 
     // ==============================================
     // 1. STATES
@@ -187,10 +188,13 @@
         alert('อัปโหลด Batch เสร็จสิ้น!');
     }
 
-    async function createAlbum() {
+async function createAlbum() {
         if (!newAlbumTitle) return;
         const res = await fetch('http://127.0.0.1:8787/api/albums', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: newAlbumTitle })
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            // 👇 แนบ adminId ไปให้ Backend บันทึก Audit Log
+            body: JSON.stringify({ title: newAlbumTitle, adminId: adminAuthState.currentAdmin?.id }) 
         });
         const result = await res.json();
         if (result.success) { newAlbumTitle = ''; loadMetadata(); selectedAlbum = result.data.id; }
@@ -199,7 +203,10 @@
     async function createArtist() {
         if (!newArtistName) return;
         const res = await fetch('http://127.0.0.1:8787/api/artists', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newArtistName })
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            // 👇 แนบ adminId
+            body: JSON.stringify({ name: newArtistName, adminId: adminAuthState.currentAdmin?.id }) 
         });
         const result = await res.json();
         if (result.success) { newArtistName = ''; loadMetadata(); selectedArtists = [...selectedArtists, result.data.id]; }
@@ -208,7 +215,10 @@
     async function createGenre() {
         if (!newGenreName) return;
         const res = await fetch('http://127.0.0.1:8787/api/genres', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newGenreName })
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            // 👇 แนบ adminId
+            body: JSON.stringify({ name: newGenreName, adminId: adminAuthState.currentAdmin?.id }) 
         });
         const result = await res.json();
         if (result.success) { newGenreName = ''; loadMetadata(); selectedGenres = [...selectedGenres, result.data.id]; }
@@ -298,11 +308,26 @@
 </script>
 
 <main style="max-width: 1000px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
-        <h1 style="color: #1db954; margin: 0;">🎛 Admin Dashboard</h1>
-        <a href="/admin/logs" style="padding: 10px 20px; background: #333; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">🛡️ View Audit Logs</a>
-    </div>
     
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+        <div>
+            <h1 style="color: #1db954; margin: 0;">🎛 Admin Dashboard</h1>
+            <p style="color: #888; margin: 5px 0 0 0;">ศูนย์กลางการควบคุมและการจัดการเพลง (Track Management)</p>
+        </div>
+    </div>
+
+    <section style="background: #1a1a1a; padding: 20px; border-radius: 8px; margin-bottom: 35px; border: 1px solid #333;">
+        <p style="margin: 0 0 15px 0; color: #ccc; font-weight: bold; font-size: 0.95em;">
+            ⚙️ ข้ามไปยังระบบการจัดการอื่นๆ (Admin Modules)
+        </p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <a href="/admin/users" class="nav-module-btn" style="--btn-color: #4f46e5;">👤 จัดการผู้ใช้งาน</a>
+            <a href="/admin/merch" class="nav-module-btn" style="--btn-color: #1db954;">🛍️ จัดการสินค้า</a>
+            <a href="/admin/orders" class="nav-module-btn" style="--btn-color: #f59e0b;">📦 จัดการคำสั่งซื้อ</a>
+            <a href="/admin/ranking" class="nav-module-btn" style="--btn-color: #ec4899;">🏆 อันดับศิลปิน</a>
+            <a href="/admin/logs" class="nav-module-btn" style="--btn-color: #6b7280;">🛡️ Audit Logs</a>
+        </div>
+    </section>
     {#if !isEditMode}
         <!-- ================= โหมด UPLOAD ================= -->
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 40px;">
@@ -611,3 +636,33 @@
         {/if}
     </section>
 </main>
+
+<style>
+    /* สไตล์สำหรับปุ่มเมนู Admin Hub */
+    .nav-module-btn {
+        padding: 10px 16px;
+        background: #2a2a2a;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: bold;
+        font-size: 0.9em;
+        border: 1px solid #444;
+        transition: all 0.2s;
+        border-left: 4px solid var(--btn-color);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .nav-module-btn:hover {
+        background: #333;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        border-color: var(--btn-color);
+    }
+    
+    .nav-module-btn:active {
+        transform: translateY(0);
+    }
+</style>

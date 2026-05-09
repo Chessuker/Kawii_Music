@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { adminAuthState } from '$lib/adminAuth.svelte';
 
   let logs = $state<any[]>([]);
   let loading = $state(true);
