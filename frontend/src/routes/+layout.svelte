@@ -58,13 +58,25 @@
         
         <div style="display: flex; gap: 20px; font-weight: bold; font-size: 0.95em;">
             <a href="/" style="color: #fff; text-decoration: none;">Home</a>
+            <a href="/artists" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Artists</a>
             <a href="/albums" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'} title="ดูอัลบั้มทั้งหมด">Albums</a>
+            <a href="/following" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Following</a>
+            <a href="/subscriptions" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Premium</a>
+            <a href="/merch" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Store</a>
+            <a href="/admin" style="color: #b3b3b3; text-decoration: none; transition: color 0.2s;" onmouseover={(e) => e.currentTarget.style.color = '#fff'} onmouseout={(e) => e.currentTarget.style.color = '#b3b3b3'}>Admin</a>
         </div>
     </div>
     
     <div>
         {#if authState.currentUser}
-            <span style="margin-right: 15px; color: #ccc;">👤 {authState.currentUser.displayName || authState.currentUser.username}</span>
+            <span style="margin-right: 15px; color: #ccc; display: inline-flex; align-items: center; gap: 8px;">
+                {#if authState.currentUser.pfpUrl || authState.currentUser.pfp_url}
+                    <img src={authState.currentUser.pfpUrl || authState.currentUser.pfp_url} alt="Profile" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;" />
+                {:else}
+                    👤
+                {/if}
+                {authState.currentUser.displayName || authState.currentUser.username}
+            </span>
             <button onclick={logoutUser} style="padding: 6px 15px; background: transparent; border: 1px solid #777; color: white; border-radius: 20px; cursor: pointer; font-weight: bold; transition: border 0.2s;" onmouseover={(e) => e.currentTarget.style.borderColor = '#fff'} onmouseout={(e) => e.currentTarget.style.borderColor = '#777'}>Logout</button>
         {:else}
             <a href="/login" style="padding: 8px 20px; background: white; color: black; font-weight: bold; border-radius: 20px; text-decoration: none; transition: transform 0.1s;" onmousedown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onmouseup={(e) => e.currentTarget.style.transform = 'scale(1)'}>Log in</a>

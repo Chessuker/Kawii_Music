@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
-import { users, tracks, histories, artists, genres, trackArtists, trackGenres, playlists, playlistTracks, albums, trackAlbums, likeSongs } from './schema';
+import { users, tracks, histories, artists, genres, trackArtists, trackGenres, playlists, playlistTracks, albums, trackAlbums, likeSongs, items, artistItems, purchaseTransactions, transactionItems, subscriptions, userSubscriptions, artistFollows, admins, logs } from './schema';
 import { eq, or, and, ilike, inArray, sql as drizzleSql, desc, asc } from 'drizzle-orm';
 
 export type Env = {
@@ -160,6 +160,7 @@ app.post('/api/upload', async (c) => {
     const title = body['title'] as string;
     const duration = body['duration'] as string || '00:00:00';
     const albumId = body['albumId'] as string;
+    const userId = body['userId'] as string | undefined;
 
     if (!file || !title) {
       return c.json({ error: 'กรุณาใส่ชื่อเพลงและไฟล์เสียง' }, 400);
@@ -203,6 +204,10 @@ app.post('/api/upload', async (c) => {
       await db.insert(trackAlbums).values({ trackId, albumId }); //[cite: 1]
     }
 
+    if (userId) {
+      await insertAuditLog(db, 'user', 'create', `Uploaded track ${title} (${trackId})`, userId);
+    }
+
     return c.json({ success: true, message: 'อัปโหลดสำเร็จ!', trackId });
   } catch (error) {
     console.error("🔥 Upload Error:", error);
@@ -222,37 +227,6 @@ app.get('/assets/:key', async (c) => {
   headers.set('etag', object.httpEtag);
   
   return new Response(object.body, { headers });
-});
-
-// --- 5. API อัปเดตยอดวิวและเก็บประวัติการฟัง (อิงตาม streaming_postgres_v2.sql) ---
-app.post('/api/tracks/:id/play', async (c) => {
-  const trackId = c.req.param('id');
-  
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const userId = body.userId; 
-
-    const dbClient = neon(c.env.DATABASE_URL);
-    const db = drizzle(dbClient);
-
-    // แก้ชื่อคอลัมน์ให้ตรงกับที่ Drizzle pull มา (viewCount)
-    await db.update(tracks)
-      .set({ viewCount: drizzleSql`${tracks.viewCount} + 1` }) 
-      .where(eq(tracks.id, trackId));
-
-    if (userId) {
-      await db.insert(histories).values({
-        // ถ้า schema คุณเป็น userId และ trackId ให้แก้เป็นแบบนี้ครับ:
-        userId: userId,    
-        trackId: trackId,  
-      });
-    }
-
-    return c.json({ success: true, message: 'บันทึกประวัติการฟังสำเร็จ' });
-  } catch (error) {
-    console.error("🔥 Update History Error:", error);
-    return c.json({ success: false, error: String(error) }, 500);
-  }
 });
 
 // --- 6. API ดึงข้อมูลศิลปินและแนวเพลงสำหรับฟอร์มอัปโหลด ---
@@ -366,7 +340,7 @@ async function hashPassword(password: string) {
 // --- 9. API สมัครสมาชิก (Register) ---
 app.post('/api/auth/register', async (c) => {
   try {
-    const { email, username, password, displayName } = await c.req.json();
+    const { email, username, password, displayName, pfpUrl } = await c.req.json();
     if (!email || !username || !password) return c.json({ error: 'กรอกข้อมูลไม่ครบ' }, 400);
 
     const sql = neon(c.env.DATABASE_URL);
@@ -385,8 +359,11 @@ app.post('/api/auth/register', async (c) => {
       email,
       username,
       passwordHash: hashedPassword, // อิงตาม schema (passwordHash หรือ password_hash)
-      displayName: displayName || username
-    }).returning({ id: users.id, username: users.username, displayName: users.displayName });
+      displayName: displayName || username,
+      pfpUrl: pfpUrl || null
+    }).returning({ id: users.id, username: users.username, displayName: users.displayName, pfpUrl: users.pfpUrl });
+
+    await insertAuditLog(db, 'user', 'create', `New account registered: ${username}`, newUser[0].id);
 
     return c.json({ success: true, user: newUser[0] });
   } catch (error) {
@@ -412,10 +389,12 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ error: 'รหัสผ่านไม่ถูกต้อง' }, 401);
     }
 
+    await insertAuditLog(db, 'user', 'login', `User ${user.username} logged in`, user.id);
+
     // ส่งข้อมูลผู้ใช้กลับไป (ไม่ส่งรหัสผ่านกลับไปเด็ดขาด)
     return c.json({ 
       success: true, 
-      user: { id: user.id, username: user.username, email: user.email, displayName: user.displayName } 
+      user: { id: user.id, username: user.username, email: user.email, displayName: user.displayName, pfpUrl: user.pfpUrl || (user as any).pfp_url } 
     });
   } catch (error) {
     console.error("🔥 Login Error:", error);
@@ -451,6 +430,8 @@ app.post('/api/playlists', async (c) => {
       userId
     }).returning();
 
+    await insertAuditLog(db, 'user', 'create', `Created new playlist: ${name}`, userId);
+
     return c.json({ success: true, data: newPlaylist[0] });
   } catch (error) {
     return c.json({ success: false, error: String(error) }, 500);
@@ -461,7 +442,7 @@ app.post('/api/playlists', async (c) => {
 app.post('/api/playlists/:id/tracks', async (c) => {
   try {
     const playlistId = c.req.param('id');
-    const { trackId } = await c.req.json();
+    const { trackId, userId } = await c.req.json();
 
     const sql = neon(c.env.DATABASE_URL);
     const db = drizzle(sql);
@@ -475,6 +456,10 @@ app.post('/api/playlists/:id/tracks', async (c) => {
       trackId,
       position: nextPosition
     });
+
+    if (userId) {
+      await insertAuditLog(db, 'user', 'update', `Added track ${trackId} to playlist ${playlistId}`, userId);
+    }
 
     return c.json({ success: true, message: 'เพิ่มเพลงเข้าเพลย์ลิสต์แล้ว' });
   } catch (error) {
@@ -523,9 +508,20 @@ app.get('/api/albums', async (c) => {
   try {
     const sql = neon(c.env.DATABASE_URL);
     const db = drizzle(sql);
-    const allAlbums = await db.select().from(albums);
+    
+    // ดึงเฉพาะข้อมูลอัลบั้มเพียวๆ (ไม่ Join กับศิลปินทั้งหมดแล้ว เพื่อป้องกัน Memory/64MB Limit พัง)
+    const allAlbums = await db.select({
+      id: albums.id,
+      title: albums.title,
+      imgUrl: albums.imgUrl || (albums as any).img_url
+    })
+    .from(albums)
+    .orderBy(desc(albums.id));
+    
     return c.json({ success: true, data: allAlbums });
   } catch (error) {
+    // 👇 เพิ่ม console.error เพื่อให้เห็นสาเหตุชัดเจนเวลาพัง
+    console.error("🔥 Get Albums Error:", error); 
     return c.json({ success: false, error: String(error) }, 500);
   }
 });
@@ -533,37 +529,65 @@ app.get('/api/albums', async (c) => {
 // --- 16. API สร้างอัลบั้มใหม่ ---
 app.post('/api/albums', async (c) => {
   try {
-    const { title, imgUrl, releaseDate } = await c.req.json();
+    const { title, imgUrl, releaseDate, artistIds, userId, adminId } = await c.req.json();
     const sql = neon(c.env.DATABASE_URL);
     const db = drizzle(sql);
 
     const newAlbum = await db.insert(albums).values({
       title,
       imgUrl: imgUrl || null,
-      releaseDate: releaseDate ? new Date(releaseDate) : new Date()
+      releaseDate: releaseDate ? new Date(releaseDate).toISOString() : new Date().toISOString()
     }).returning();
+
+    const albumId = newAlbum[0].id;
+
+    if (artistIds && Array.isArray(artistIds) && artistIds.length > 0) {
+      await db.insert(albumArtists).values(
+        artistIds.map((id: string) => ({ albumId, artistId: id }))
+      );
+    }
+
+    if (userId) {
+      await insertAuditLog(db, 'user', 'create', `Created album ${title}`, userId);
+    } else if (adminId) {
+      await insertAuditLog(db, 'admin', 'create', `Created album ${title}`, undefined, adminId);
+    }
 
     return c.json({ success: true, data: newAlbum[0] });
   } catch (error) {
+    console.error("🔥 Create Album Error:", error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });
 
 // --- 17. API สร้างศิลปิน และ แนวเพลง (Quick Add) ---
 app.post('/api/artists', async (c) => {
-  const { name } = await c.req.json();
+  const { name, userId, adminId } = await c.req.json();
   const db = drizzle(neon(c.env.DATABASE_URL));
   const newArtist = await db.insert(artists).values({ name }).returning();
+
+  if (userId) {
+    await insertAuditLog(db, 'user', 'create', `Created artist ${name}`, userId);
+  } else if (adminId) {
+    await insertAuditLog(db, 'admin', 'create', `Created artist ${name}`, undefined, adminId);
+  }
+
   return c.json({ success: true, data: newArtist[0] });
 });
 
 app.post('/api/genres', async (c) => {
-  const { name } = await c.req.json();
+  const { name, userId, adminId } = await c.req.json();
   const db = drizzle(neon(c.env.DATABASE_URL));
   const newGenre = await db.insert(genres).values({ name }).returning();
+
+  if (userId) {
+    await insertAuditLog(db, 'user', 'create', `Created genre ${name}`, userId);
+  } else if (adminId) {
+    await insertAuditLog(db, 'admin', 'create', `Created genre ${name}`, undefined, adminId);
+  }
+
   return c.json({ success: true, data: newGenre[0] });
 });
-
 // --- 18. API ดึงเพลงจาก Internet Archive อัตโนมัติ (V3 - Auto Extract Metadata) ---
 app.post('/api/sync-ia', async (c) => {
   try {
@@ -792,10 +816,12 @@ app.post('/api/tracks/:id/like', async (c) => {
     if (existingLike.length > 0) {
       // ถ้ามีแล้ว -> ให้ลบออก (Unlike)
       await db.delete(likeSongs).where(and(eq(likeSongs.userId, userId), eq(likeSongs.trackId, trackId)));
+      await insertAuditLog(db, 'user', 'delete', `Unliked track ${trackId}`, userId);
       return c.json({ success: true, liked: false });
     } else {
       // ถ้ายังไม่มี -> ให้เพิ่มเข้าไป (Like)
       await db.insert(likeSongs).values({ userId, trackId });
+      await insertAuditLog(db, 'user', 'create', `Liked track ${trackId}`, userId);
       return c.json({ success: true, liked: true });
     }
   } catch (error) {
@@ -878,8 +904,9 @@ app.post('/api/tracks/:id/play', async (c) => {
       await db.insert(histories).values({
         userId,
         trackId,
-        playedAt: new Date()
+        listenedAt: new Date()
       });
+      await insertAuditLog(db, 'user', 'other', `Played track ${trackId}`, userId);
     }
 
     return c.json({ success: true });
@@ -1033,6 +1060,15 @@ app.get('/api/albums/:id', async (c) => {
     const albumInfo = await db.select().from(albums).where(eq(albums.id, albumId)).limit(1);
     if (albumInfo.length === 0) return c.json({ success: false, error: 'ไม่พบอัลบั้ม' }, 404);
 
+    const aArtistsRaw = await db.select().from(albumArtists).where(eq((albumArtists as any).albumId || (albumArtists as any).album_id, albumId));
+    let albumArtistsList: any[] = [];
+    if (aArtistsRaw.length > 0) {
+      const aArtistIds = aArtistsRaw.map(aa => (aa as any).artistId || (aa as any).artist_id);
+      albumArtistsList = await db.select().from(artists).where(inArray(artists.id, aArtistIds));
+    }
+
+    const fullAlbum = { ...albumInfo[0], artists: albumArtistsList };
+
     // 2. ดึงรายชื่อเพลงที่อยู่ในอัลบั้มนี้
     const albumTracksRaw = await db.select({
       track: tracks
@@ -1043,7 +1079,7 @@ app.get('/api/albums/:id', async (c) => {
     .orderBy(asc(tracks.id)); // เรียงตาม ID หรือจะเพิ่มคอลัมน์ position ใน SQL ภายหลังก็ได้ครับ
 
     if (albumTracksRaw.length === 0) {
-      return c.json({ success: true, album: albumInfo[0], tracks: [] });
+      return c.json({ success: true, album: fullAlbum, tracks: [] });
     }
 
     // 3. ดึง Relations (ศิลปิน, แนวเพลง) ของเพลงในอัลบั้มนี้มาแสดงด้วย
@@ -1065,15 +1101,575 @@ app.get('/api/albums/:id', async (c) => {
         ...track,
         artists: allArtists.filter(a => tArtistIds.includes(a.id)),
         genres: allGenres.filter(g => tGenreIds.includes(g.id)),
-        album: albumInfo[0] // แปะข้อมูลอัลบั้มกลับเข้าไปเพื่อให้ Player แสดงรูปปกได้
+        album: fullAlbum // แปะข้อมูลอัลบั้มกลับเข้าไปเพื่อให้ Player แสดงรูปปกได้
       };
     });
 
-    return c.json({ success: true, album: albumInfo[0], tracks: enrichedTracks });
+    return c.json({ success: true, album: fullAlbum, tracks: enrichedTracks });
   } catch (error) {
     console.error("🔥 Get Album Details Error:", error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });
+
+// --- 26. API ดึงสินค้า (Merchandise) พร้อมข้อมูลศิลปิน ---
+app.get('/api/merch', async (c) => {
+  try {
+    const search = c.req.query('search') || '';
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    let conditions = undefined;
+    if (search) {
+      conditions = ilike(items.name, `%${search}%`);
+    }
+
+    const allItems = await db.select().from(items).where(conditions).orderBy(desc(items.id));
+
+    if (allItems.length === 0) {
+      return c.json({ success: true, data: [] });
+    }
+
+    const itemIds = allItems.map(i => i.id);
+
+    // ดึงความสัมพันธ์กับศิลปิน
+    const [iArtists, allArtists] = await Promise.all([
+      db.select().from(artistItems).where(inArray((artistItems as any).itemId || (artistItems as any).item_id, itemIds)),
+      db.select().from(artists)
+    ]);
+
+    const enrichedItems = allItems.map(item => {
+      const iId = item.id;
+      const associatedArtistIds = iArtists.filter(ai => ((ai as any).itemId || (ai as any).item_id) === iId).map(ai => (ai as any).artistId || (ai as any).artist_id);
+      return {
+        ...item,
+        artists: allArtists.filter(a => associatedArtistIds.includes(a.id))
+      };
+    });
+
+    return c.json({ success: true, data: enrichedItems });
+  } catch (error) {
+    console.error("🔥 Merch List Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 27. API ดึงรายละเอียดสินค้า (Merchandise) ---
+app.get('/api/merch/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const targetItems = await db.select().from(items).where(eq(items.id, id));
+    if (targetItems.length === 0) return c.json({ success: false, error: 'Item not found' }, 404);
+
+    const item = targetItems[0];
+    
+    const iArtists = await db.select().from(artistItems).where(eq((artistItems as any).itemId || (artistItems as any).item_id, id));
+    const artistIds = iArtists.map(ai => (ai as any).artistId || (ai as any).artist_id);
+    
+    let relatedArtists: typeof artists.$inferSelect[] = [];
+    if (artistIds.length > 0) {
+      relatedArtists = await db.select().from(artists).where(inArray(artists.id, artistIds));
+    }
+
+    return c.json({ success: true, data: { ...item, artists: relatedArtists } });
+  } catch (error) {
+    console.error("🔥 Merch Details Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 28. API สำหรับทำรายการสั่งซื้อ (Checkout) ---
+app.post('/api/merch/checkout', async (c) => {
+  try {
+    const { userId, cart } = await c.req.json();
+    if (!userId || !cart || cart.length === 0) {
+      return c.json({ success: false, error: 'Invalid checkout data' }, 400);
+    }
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    let totalItemCount = 0;
+    let totalPrice = 0;
+
+    const cartItemIds = cart.map((cItem: any) => cItem.itemId);
+    const dbItems = await db.select().from(items).where(inArray(items.id, cartItemIds));
+    
+    const validatedCart = cart.map((cItem: any) => {
+      const dbItem = dbItems.find(i => i.id === cItem.itemId);
+      if (!dbItem) throw new Error(`Item ${cItem.itemId} not found`);
+      const quantity = parseInt(cItem.quantity) || 1;
+      const unitPrice = parseFloat(dbItem.price as any);
+      totalItemCount += quantity;
+      totalPrice += quantity * unitPrice;
+      
+      return {
+        itemId: dbItem.id,
+        unitPrice,
+        quantity
+      };
+    });
+
+    const newTx = await db.insert(purchaseTransactions).values({
+      userId,
+      totalItemCount,
+      totalPrice: String(totalPrice)
+    }).returning();
+
+    const tranId = newTx[0].id;
+
+    await db.insert(transactionItems).values(
+      validatedCart.map((vc: any) => ({
+        tranId,
+        itemId: vc.itemId,
+        unitPrice: String(vc.unitPrice),
+        quantity: vc.quantity
+      }))
+    );
+
+    await insertAuditLog(db, 'user', 'create', `Checkout transaction ${tranId} total ${totalPrice}`, userId);
+
+    return c.json({ success: true, message: 'Checkout successful', transaction: newTx[0] });
+  } catch (error) {
+    console.error("🔥 Checkout Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 29. API ดึงรายการแพ็กเกจสมาชิก (Subscriptions) ---
+app.get('/api/subscriptions', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+    const plans = await db.select().from(subscriptions).orderBy(asc(subscriptions.price));
+    return c.json({ success: true, data: plans });
+  } catch (error) {
+    console.error("🔥 Subscriptions List Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 30. API สำหรับสมัครแพ็กเกจสมาชิก (Subscribe) ---
+app.post('/api/subscriptions/subscribe', async (c) => {
+  try {
+    const { userId, subscriptionId } = await c.req.json();
+    if (!userId || !subscriptionId) {
+      return c.json({ success: false, error: 'Missing userId or subscriptionId' }, 400);
+    }
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // ดึงข้อมูลแพ็กเกจเพื่อเอาจำนวนวัน
+    const plans = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId));
+    if (plans.length === 0) {
+      return c.json({ success: false, error: 'Subscription plan not found' }, 404);
+    }
+    const plan = plans[0];
+
+    // คำนวณวันหมดอายุ
+    const startDate = new Date();
+    const expiryDate = new Date();
+    expiryDate.setDate(startDate.getDate() + plan.durationDays);
+
+    // ตรวจสอบว่าผู้ใช้มีแพ็กเกจที่กำลังใช้งานอยู่หรือไม่
+    const activeSub = await db.select().from(userSubscriptions)
+      .where(
+        and(
+          eq(userSubscriptions.userId, userId),
+          drizzleSql`expiry_date > now()`
+        )
+      )
+      .orderBy(desc(userSubscriptions.expiryDate))
+      .limit(1);
+
+    if (activeSub.length > 0) {
+      // หากมีแพ็กเกจอยู่แล้ว ให้ต่ออายุจากวันหมดอายุเดิม
+      const currentExpiry = new Date(activeSub[0].expiryDate);
+      expiryDate.setTime(currentExpiry.getTime());
+      expiryDate.setDate(expiryDate.getDate() + plan.durationDays);
+    }
+
+    // บันทึกการสมัคร
+    const newSub = await db.insert(userSubscriptions).values({
+      userId,
+      subscriptionId,
+      startDate: startDate.toISOString(),
+      expiryDate: expiryDate.toISOString()
+    }).returning();
+
+    await insertAuditLog(db, 'user', 'update', `Subscribed to ${plan.name}`, userId);
+
+    return c.json({ success: true, data: newSub[0], message: 'Subscription activated' });
+  } catch (error) {
+    console.error("🔥 Subscribe Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 31. API ตรวจสอบสถานะสมาชิก (Active Subscription) ---
+app.get('/api/users/:id/subscription', async (c) => {
+  try {
+    const userId = c.req.param('id');
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const activeSubs = await db.select({
+      userSub: userSubscriptions,
+      plan: subscriptions
+    })
+    .from(userSubscriptions)
+    .innerJoin(subscriptions, eq(userSubscriptions.subscriptionId, subscriptions.id))
+    .where(
+      and(
+        eq(userSubscriptions.userId, userId),
+        drizzleSql`expiry_date > now()`
+      )
+    )
+    .orderBy(desc(userSubscriptions.expiryDate))
+    .limit(1);
+
+    if (activeSubs.length === 0) {
+      return c.json({ success: true, data: null, isActive: false });
+    }
+
+    return c.json({ success: true, data: activeSubs[0], isActive: true });
+  } catch (error) {
+    console.error("🔥 Check Subscription Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 32. API สำหรับกดติดตาม / เลิกติดตามศิลปิน (Follow / Unfollow) ---
+app.post('/api/artists/:id/follow', async (c) => {
+  try {
+    const artistId = c.req.param('id');
+    const { userId } = await c.req.json();
+    if (!userId) return c.json({ error: 'ต้อง Login ก่อน' }, 401);
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const existingFollow = await db.select().from(artistFollows)
+      .where(and(eq(artistFollows.userId, userId), eq(artistFollows.artistId, artistId)));
+
+    if (existingFollow.length > 0) {
+      await db.delete(artistFollows).where(and(eq(artistFollows.userId, userId), eq(artistFollows.artistId, artistId)));
+      await insertAuditLog(db, 'user', 'delete', `Unfollowed artist ${artistId}`, userId);
+      return c.json({ success: true, followed: false });
+    } else {
+      await db.insert(artistFollows).values({ userId, artistId });
+      await insertAuditLog(db, 'user', 'create', `Followed artist ${artistId}`, userId);
+      return c.json({ success: true, followed: true });
+    }
+  } catch (error) {
+    console.error("🔥 Follow Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 33. API ดึงข้อมูลศิลปินที่ผู้ใช้งานติดตาม ---
+app.get('/api/users/:id/follows', async (c) => {
+  try {
+    const userId = c.req.param('id');
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const followedArtistsRaw = await db.select({
+      artist: artists
+    })
+    .from(artistFollows)
+    .innerJoin(artists, eq(artistFollows.artistId, artists.id))
+    .where(eq(artistFollows.userId, userId))
+    .orderBy(artists.name);
+
+    const followedArtists = followedArtistsRaw.map(fa => fa.artist);
+
+    return c.json({ success: true, data: followedArtists });
+  } catch (error) {
+    console.error("🔥 Get Follows Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 34. API สำหรับ Admin Login ---
+app.post('/api/admin/login', async (c) => {
+  try {
+    const { username, password } = await c.req.json();
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const targetAdmins = await db.select().from(admins).where(eq(admins.username, username));
+    if (targetAdmins.length === 0) return c.json({ error: 'ไม่พบผู้ดูแลระบบนี้' }, 401);
+
+    const admin = targetAdmins[0];
+    const hashedPassword = await hashPassword(password);
+
+    if (admin.passwordHash !== hashedPassword) {
+      return c.json({ error: 'รหัสผ่านไม่ถูกต้อง' }, 401);
+    }
+
+    await insertAuditLog(db, 'admin', 'login', 'Admin logged in', undefined, admin.id);
+
+    return c.json({ 
+      success: true, 
+      admin: { id: admin.id, username: admin.username } 
+    });
+  } catch (error) {
+    console.error("🔥 Admin Login Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 35. API ดึงข้อมูล Audit Logs ทั้งหมด ---
+app.get('/api/logs', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // ดึง Logs พร้อม JOIN ตาราง Users และ Admins เพื่อเอาชื่อมาแสดง
+    const allLogs = await db.select({
+      log: logs,
+      user: { id: users.id, username: users.username },
+      admin: { id: admins.id, username: admins.username }
+    })
+    .from(logs)
+    .leftJoin(users, eq(logs.userId, users.id))
+    .leftJoin(admins, eq(logs.adminId, admins.id))
+    .orderBy(desc(logs.createdAt));
+
+    const formattedLogs = allLogs.map(item => ({
+      id: item.log.id,
+      actorType: item.log.actorType,
+      actionType: item.log.actionType,
+      actionDetail: item.log.actionDetail,
+      createdAt: item.log.createdAt,
+      actorName: item.log.actorType === 'admin' ? item.admin?.username : item.user?.username
+    }));
+
+    return c.json({ success: true, data: formattedLogs });
+  } catch (error) {
+    console.error("🔥 Get Logs Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 36. API สร้าง Audit Log (สำหรับบันทึก action ต่างๆ ในระบบ) ---
+app.post('/api/logs', async (c) => {
+  try {
+    const { actorType, actionType, actionDetail, userId, adminId } = await c.req.json();
+
+    // ตรวจสอบเงื่อนไข Actor ตาม Constraint ใน Database
+    if (actorType === 'user' && (!userId || adminId)) {
+       return c.json({ error: 'Invalid actor constraints for user' }, 400);
+    }
+    if (actorType === 'admin' && (!adminId || userId)) {
+       return c.json({ error: 'Invalid actor constraints for admin' }, 400);
+    }
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const newLog = await db.insert(logs).values({
+      actorType,
+      actionType,
+      actionDetail,
+      userId: userId || null,
+      adminId: adminId || null
+    }).returning();
+
+    return c.json({ success: true, data: newLog[0] });
+  } catch (error) {
+    console.error("🔥 Create Log Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- API พิเศษ: สร้าง Mock สินค้าสำหรับทดสอบระบบ Merch ---
+// (แนะนำให้ลบหรือคอมเมนต์ทิ้งเมื่อโปรเจกต์พร้อมขึ้น Production จริง)
+app.post('/api/merch/seed', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // 1. ดึงรายชื่อศิลปินมาสัก 20 คน (เพื่อไม่ให้สินค้าเยอะเกินไปจนเทสต์ลำบาก)
+    const artistList = await db.select().from(artists).limit(20);
+
+    if (artistList.length === 0) {
+      return c.json({ success: false, error: 'ไม่พบรายชื่อศิลปินในระบบ กรุณา Sync IA ก่อน' }, 404);
+    }
+
+    let createdCount = 0;
+
+    // 2. วนลูปสร้างสินค้าให้ศิลปินแต่ละคน
+    for (const artist of artistList) {
+      // โครงสร้างสินค้าจำลอง (ปรับราคาได้ตามใจชอบ)
+      const mockItems = [
+        { 
+          name: `${artist.name} - Limited Edition Vinyl`, 
+          price: '1500.00', 
+          img: `https://placehold.co/600x600/1db954/fff?text=${encodeURIComponent('Vinyl\n'+artist.name)}` 
+        },
+        { 
+          name: `${artist.name} Official Tour T-Shirt`, 
+          price: '790.00', 
+          img: `https://placehold.co/600x600/111111/fff?text=${encodeURIComponent('T-Shirt\n'+artist.name)}` 
+        },
+        { 
+          name: `${artist.name} - Retro Cassette Tape`, 
+          price: '350.00', 
+          img: `https://placehold.co/600x600/ff7eb3/fff?text=${encodeURIComponent('Cassette\n'+artist.name)}` 
+        },
+        { 
+          name: `${artist.name} - Signed Poster`, 
+          price: '250.00', 
+          img: `https://placehold.co/400x600/333333/fff?text=${encodeURIComponent('Poster\n'+artist.name)}` 
+        }
+      ];
+
+      for (const mock of mockItems) {
+        // บันทึกลงตาราง items
+        const [newItem] = await db.insert(items).values({
+          name: mock.name,
+          price: mock.price, // เป็น numeric() ใน Schema ต้องส่งเป็น String ป้องกันค่าเพี้ยน
+          imgUrl: mock.img
+        }).returning();
+
+        // ผูกความสัมพันธ์ลงตาราง M:N (artist_items)
+        await db.insert(artistItems).values({
+          itemId: newItem.id,
+          artistId: artist.id
+        });
+
+        createdCount++;
+      }
+    }
+
+    return c.json({ 
+      success: true, 
+      message: `เสกสินค้าจำลองสำเร็จ! ได้สินค้าทั้งหมด ${createdCount} ชิ้น จากศิลปิน ${artistList.length} คน` 
+    });
+
+  } catch (error) {
+    console.error("🔥 Seed Merch Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- API ดึงรายชื่อศิลปินทั้งหมด (พร้อมระบบค้นหาและแบ่งหน้า) ---
+app.get('/api/artists/browse', async (c) => {
+  try {
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '30');
+    const search = c.req.query('search') || '';
+    const offset = (page - 1) * limit;
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    let condition = undefined;
+    if (search) {
+      condition = ilike(artists.name, `%${search}%`);
+    }
+
+    const artistList = await db.select()
+      .from(artists)
+      .where(condition)
+      .orderBy(asc(artists.name)) // เรียงตามตัวอักษร A-Z
+      .limit(limit)
+      .offset(offset);
+
+    const hasMore = artistList.length === limit;
+
+    return c.json({ success: true, data: artistList, hasMore });
+  } catch (error) {
+    console.error("🔥 Browse Artists Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- API ดึงรายละเอียดศิลปิน (พร้อม อัลบั้ม และ เพลง) ---
+app.get('/api/artists/:id', async (c) => {
+  try {
+    const artistId = c.req.param('id');
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // 1. ดึงข้อมูลตัวศิลปิน
+    const targetArtists = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (targetArtists.length === 0) return c.json({ success: false, error: 'ไม่พบศิลปิน' }, 404);
+    const artist = targetArtists[0];
+
+    // 2. ดึงอัลบั้มของศิลปินคนนี้ (ใช้ groupBy เพื่อกันซ้ำ เหมือนตอนทำหน้า Grouped Albums)
+    const artistAlbums = await db.select({
+        id: albums.id,
+        title: albums.title,
+        imgUrl: albums.imgUrl || (albums as any).img_url
+    })
+    .from(trackArtists)
+    .innerJoin(trackAlbums, eq((trackArtists as any).trackId || (trackArtists as any).track_id, (trackAlbums as any).trackId || (trackAlbums as any).track_id))
+    .innerJoin(albums, eq((trackAlbums as any).albumId || (trackAlbums as any).album_id, albums.id))
+    .where(eq((trackArtists as any).artistId || (trackArtists as any).artist_id, artistId))
+    .groupBy(albums.id, albums.title, albums.imgUrl || (albums as any).img_url);
+
+    // 3. ดึงเพลงทั้งหมดของศิลปินคนนี้
+    const artistTracksRaw = await db.select({ track: tracks })
+      .from(trackArtists)
+      .innerJoin(tracks, eq((trackArtists as any).trackId || (trackArtists as any).track_id, tracks.id))
+      .where(eq((trackArtists as any).artistId || (trackArtists as any).artist_id, artistId))
+      .orderBy(desc(tracks.viewCount)); // เอาเพลงฮิตขึ้นก่อน
+
+    // ประกอบร่างเพลงกับข้อมูลอัลบั้มเพื่อให้ Player ทำงานได้สมบูรณ์
+    const trackIds = artistTracksRaw.map(t => t.track.id);
+    let enrichedTracks = [];
+    
+    if (trackIds.length > 0) {
+      const [tAlbums, allAlbums] = await Promise.all([
+         db.select().from(trackAlbums).where(inArray((trackAlbums as any).trackId || (trackAlbums as any).track_id, trackIds)),
+         db.select().from(albums)
+      ]);
+
+      enrichedTracks = artistTracksRaw.map(t => {
+        const track = t.track;
+        const trackAlbumRel = tAlbums.find(ta => ((ta as any).trackId || (ta as any).track_id) === track.id);
+        return {
+          ...track,
+          artists: [artist], // ใส่ข้อมูลศิลปินเข้าไปด้วย
+          album: trackAlbumRel ? allAlbums.find(a => a.id === ((trackAlbumRel as any).albumId || (trackAlbumRel as any).album_id)) : null
+        };
+      });
+    }
+
+    return c.json({ success: true, artist, albums: artistAlbums, tracks: enrichedTracks });
+  } catch (error) {
+    console.error("🔥 Artist Details Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- ฟังก์ชันช่วยเหลือสำหรับบันทึก Audit Log ให้อัตโนมัติ ---
+async function insertAuditLog(
+  db: any, 
+  actorType: 'user' | 'admin', 
+  actionType: 'create' | 'update' | 'delete' | 'login' | 'logout' | 'ban' | 'other', 
+  actionDetail: string, 
+  userId?: string, 
+  adminId?: string
+) {
+  try {
+    await db.insert(logs).values({
+      actorType,
+      actionType,
+      actionDetail,
+      userId: userId || null,
+      adminId: adminId || null
+    });
+  } catch (error) {
+    console.error("🔥 Auto Log Error:", error);
+  }
+}
 
 export default app;

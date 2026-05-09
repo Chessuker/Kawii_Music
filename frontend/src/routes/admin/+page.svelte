@@ -298,7 +298,10 @@
 </script>
 
 <main style="max-width: 1000px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    <h1 style="color: #1db954; margin-bottom: 30px;">🎛 Admin Dashboard</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+        <h1 style="color: #1db954; margin: 0;">🎛 Admin Dashboard</h1>
+        <a href="/admin/logs" style="padding: 10px 20px; background: #333; color: white; text-decoration: none; border-radius: 6px; font-weight: bold;">🛡️ View Audit Logs</a>
+    </div>
     
     {#if !isEditMode}
         <!-- ================= โหมด UPLOAD ================= -->

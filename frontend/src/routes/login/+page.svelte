@@ -6,6 +6,7 @@
     let password = $state('');
     let email = $state('');
     let displayName = $state('');
+    let pfpUrl = $state('');
     let message = $state('');
     let isProcessing = $state(false);
 
@@ -17,7 +18,7 @@
         const endpoint = isLoginMode ? '/api/auth/login' : '/api/auth/register';
         const payload = isLoginMode 
             ? { username, password } 
-            : { email, username, password, displayName };
+            : { email, username, password, displayName, pfpUrl };
 
         try {
             const res = await fetch(`http://127.0.0.1:8787${endpoint}`, {
@@ -55,6 +56,10 @@
             <div>
                 <label style="display: block; font-weight: bold; margin-bottom: 5px;">Display Name (ชื่อที่แสดง):</label>
                 <input type="text" bind:value={displayName} required style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+            </div>
+            <div>
+                <label style="display: block; font-weight: bold; margin-bottom: 5px;">Profile Picture URL (Optional):</label>
+                <input type="url" bind:value={pfpUrl} placeholder="https://example.com/image.jpg" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
             </div>
         {/if}
 

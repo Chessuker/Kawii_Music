@@ -38,7 +38,10 @@
             <div>
                 <p style="margin: 0; font-weight: bold; text-transform: uppercase; font-size: 0.8em; letter-spacing: 1px;">ALBUM</p>
                 <h1 style="margin: 10px 0; font-size: 4em;">{albumData.title}</h1>
-                <p style="margin: 0; opacity: 0.8;">{tracks.length} เพลงในอัลบั้มนี้</p>
+                <p style="margin: 0; opacity: 0.8; font-size: 1.1em; font-weight: bold;">
+                    {albumData.artists && albumData.artists.length > 0 ? albumData.artists.map(a => a.name).join(', ') : 'Unknown Artist'}
+                </p>
+                <p style="margin: 10px 0 0 0; opacity: 0.8;">{tracks.length} เพลงในอัลบั้มนี้</p>
                 <button onclick={() => playTrack(tracks[0], tracks)} style="margin-top: 25px; padding: 15px 40px; background: #1db954; color: white; border: none; border-radius: 50px; font-weight: bold; font-size: 1.1em; cursor: pointer;">▶ เล่นทั้งหมด</button>
             </div>
         </div>
