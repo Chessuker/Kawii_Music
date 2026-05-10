@@ -92,6 +92,21 @@
     </button>
   </header>
 
+  <!-- Admin Navigation Modules -->
+  <section class="bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
+      <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-4">Quick Navigation</p>
+      <div class="flex flex-wrap gap-3">
+          <a href="/admin/tracks" class="nav-module-btn border-l-teal-500 hover:border-teal-500">🎵 Tracks</a>
+          <a href="/admin/artists" class="nav-module-btn border-l-emerald-500 hover:border-emerald-500">🎤 Artists</a>
+          <a href="/admin/albums" class="nav-module-btn border-l-sky-500 hover:border-sky-500">💿 Albums</a>
+          <a href="/admin/users" class="nav-module-btn border-l-indigo-500 hover:border-indigo-500">👤 Users</a>
+          <a href="/admin/merch" class="nav-module-btn border-l-primary hover:border-primary">🛍️ Store</a>
+          <a href="/admin/orders" class="nav-module-btn border-l-amber-500 hover:border-amber-500">📦 Orders</a>
+          <a href="/admin/ranking" class="nav-module-btn border-l-pink-500 hover:border-pink-500">🏆 Ranking</a>
+          <a href="/admin/logs" class="nav-module-btn border-l-gray-500 bg-white/5 border-gray-500">🛡️ Logs</a>
+      </div>
+  </section>
+
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
     <div class="md:col-span-1 relative group">
       <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted group-focus-within:text-primary transition-colors">🔍</span>
@@ -198,3 +213,19 @@
     </div>
   {/if}
 </div>
+
+<style>
+    @reference "../../layout.css";
+
+    .nav-module-btn {
+        @apply px-4 py-3 bg-bg-highlight text-white rounded-xl font-black text-sm border border-white/5 transition-all flex items-center gap-2 border-l-4;
+    }
+    
+    .nav-module-btn:hover {
+        @apply bg-white/10 -translate-y-1 shadow-xl;
+    }
+    
+    .nav-module-btn:active {
+        @apply translate-y-0;
+    }
+</style>

@@ -134,14 +134,14 @@
             <div>
                 {#if authState.currentUser}
                     <div class="flex items-center gap-4">
-                        <span class="flex items-center gap-2 bg-black/50 py-1 pl-1 pr-3 rounded-full text-sm font-bold">
+                        <a href="/profile" class="flex items-center gap-2 bg-black/50 py-1 pl-1 pr-3 rounded-full text-sm font-bold hover:bg-white/10 transition-colors">
                             {#if authState.currentUser.pfpUrl || authState.currentUser.pfp_url}
                                 <img src={authState.currentUser.pfpUrl || authState.currentUser.pfp_url} alt="Profile" class="w-7 h-7 rounded-full object-cover" />
                             {:else}
                                 <div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs">👤</div>
                             {/if}
                             {authState.currentUser.displayName || authState.currentUser.username}
-                        </span>
+                        </a>
                         <button onclick={logoutUser} class="text-sm font-bold text-text-muted hover:text-text-base">Logout</button>
                     </div>
                 {:else}

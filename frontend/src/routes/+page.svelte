@@ -24,6 +24,13 @@
     let filterAlbum = $state('');
     let isSearching = $state(false);
 
+    let filteredSearchArtists = $derived(
+        availableArtists.filter(a => a.name.toLowerCase().includes(filterArtist.toLowerCase())).slice(0, 50)
+    );
+    let filteredSearchAlbums = $derived(
+        availableAlbums.filter(a => a.title.toLowerCase().includes(filterAlbum.toLowerCase())).slice(0, 50)
+    );
+
     let recentHistory: any[] = $state([]);
 
     onMount(() => {
@@ -117,21 +124,22 @@
             return;
         }
         
+        // ⚡ Optimistic UI: อัปเดตหน้าจอก่อนเลยทันที เพื่อความลื่นไหล
+        const isCurrentlyLiked = likedTrackIds.includes(trackId);
+        if (isCurrentlyLiked) {
+            likedTrackIds = likedTrackIds.filter(id => id !== trackId);
+        } else {
+            likedTrackIds = [...likedTrackIds, trackId];
+        }
+        
         try {
-            const res = await fetch(`http://127.0.0.1:8787/api/tracks/${trackId}/like`, {
+            // ยิง API แบบ Background
+            await fetch(`http://127.0.0.1:8787/api/tracks/${trackId}/like`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: authState.currentUser.id })
             });
-            const result = await res.json();
-            
-            if (result.success) {
-                if (result.liked) {
-                    likedTrackIds = [...likedTrackIds, trackId];
-                } else {
-                    likedTrackIds = likedTrackIds.filter(id => id !== trackId);
-                }
-            }
+            // (ถ้าต้องการความชัวร์ 100% อาจจะเช็ก result คืนมา ถ้า Error ค่อย Rollback ตัวแปรกลับ)
         } catch (error) {
             alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
         }
@@ -261,14 +269,14 @@
             <div class="relative">
                 <input list="user-artist-list" bind:value={filterArtist} placeholder="Artist" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="user-artist-list">
-                    {#each availableArtists as artist}<option value={artist.name}></option>{/each}
+                    {#each filteredSearchArtists as artist}<option value={artist.name}></option>{/each}
                 </datalist>
             </div>
 
             <div class="relative">
                 <input list="user-album-list" bind:value={filterAlbum} placeholder="Album" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="user-album-list">
-                    {#each availableAlbums as album}<option value={album.title}></option>{/each}
+                    {#each filteredSearchAlbums as album}<option value={album.title}></option>{/each}
                 </datalist>
             </div>
 

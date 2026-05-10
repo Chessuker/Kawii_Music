@@ -2,590 +2,523 @@
     import { onMount } from 'svelte';
     import { adminAuthState } from '$lib/adminAuth.svelte';
 
-    // Metadata States
-    let availableArtists: any[] = $state([]);
-    let availableGenres: any[] = $state([]);
-    let availableAlbums: any[] = $state([]);
-    let allTracks: any[] = $state([]);
-
-    // Pagination & Filter States
-    let currentPage = $state(1);
-    let totalPages = $state(1);
-    let totalTracks = $state(0);
-    let searchQuery = $state('');
-    let filterArtist = $state('');
-    let filterGenre = $state('');
-    let filterAlbum = $state('');
+    // State using Svelte 5 Runes
+    let users = $state<any[]>([]);
+    let logs = $state<any[]>([]);
+    let orders = $state<any[]>([]);
+    let rankings = $state<any[]>([]);
+    let totalTracksCount = $state(0); // แยก State ออกมาเก็บจำนวนเพลงโดยเฉพาะ
     
-    // Batch Upload States
-    let files: FileList | null = $state(null);
-    let uploadQueue: any[] = $state([]);
-    let selectedArtists: string[] = $state([]);
-    let selectedGenres: string[] = $state([]);
-    let selectedAlbum: string = $state('');
-    let isUploadingBatch = $state(false);
+    let isLoading = $state(true);
+    let fetchErrors = $state<string[]>([]); // เก็บ Error ไว้แสดงผลเฉพาะจุด
+
+    // Derived values for KPIs (คำนวณจาก Data จริงที่มี)
+    let totalUsers = $derived(users.length);
+    let activeUsers = $derived(users.filter(u => u.accountStatus === 'active').length); // อิงจาก ENUM ใน DB
+    let totalRevenue = $derived(orders.reduce((acc, curr) => acc + Number(curr.order.totalPrice || 0), 0));
     
-    // Quick Add States
-    let newAlbumTitle = $state('');
-    let newArtistName = $state('');
-    let newGenreName = $state('');
+    // คำนวณยอดขายเฉลี่ยต่อบิล (AOV - Average Order Value) ให้ดูมีมิติวิเคราะห์มากขึ้น
+    let avgOrderValue = $derived(orders.length > 0 ? totalRevenue / orders.length : 0);
 
-    // Edit States
-    let isEditMode = $state(false);
-    let editingTrackId: string | null = $state(null);
-    let editTitle = $state('');
-    let isSavingEdit = $state(false);
+    onMount(async () => {
+        try {
+            // ใช้ Promise.allSettled เพื่อให้ถ้าระบบใดระบบหนึ่งร่วง แดชบอร์ดส่วนอื่นยังทำงานต่อได้ (Fault-tolerant)
+            const results = await Promise.allSettled([
+                fetch('http://127.0.0.1:8787/api/users').then(r => r.json()),
+                fetch('http://127.0.0.1:8787/api/logs').then(r => r.json()),
+                fetch('http://127.0.0.1:8787/api/admin/orders').then(r => r.json()),
+                fetch('http://127.0.0.1:8787/api/admin/artists/ranking').then(r => r.json()),
+                fetch('http://127.0.0.1:8787/api/tracks?limit=1').then(r => r.json()) // แอบยิงไปเอา Pagination Metadata มาใช้
+            ]);
 
-    onMount(() => {
-        loadMetadata();
-        loadTracks();
+            // แกะกล่อง Data แบบเป็นระบบ
+            if (results[0].status === 'fulfilled' && results[0].value.success) users = results[0].value.data;
+            if (results[1].status === 'fulfilled' && results[1].value.success) logs = results[1].value.data;
+            if (results[2].status === 'fulfilled' && results[2].value.success) orders = results[2].value.data;
+            if (results[3].status === 'fulfilled' && results[3].value.success) rankings = results[3].value.data;
+            
+            // ดึงจำนวนเพลงทั้งหมดจาก Pagination object
+            if (results[4].status === 'fulfilled' && results[4].value.success) {
+                totalTracksCount = results[4].value.pagination.totalTracks;
+            }
+
+            // แกะ Error ออกมา (ถ้ามี)
+            results.forEach((res, index) => {
+                if (res.status === 'rejected' || (res.status === 'fulfilled' && !res.value.success)) {
+                    fetchErrors.push(`Module ${index + 1} Failed to sync`);
+                }
+            });
+
+        } catch (error) {
+            console.error("Dashboard core failure:", error);
+        } finally {
+            isLoading = false;
+        }
     });
 
-    // IA Sync States
-    let iaIdentifier = $state('');
-    let isSyncingIA = $state(false);
-
-    async function syncFromIA() {
-        if (!iaIdentifier) {
-            alert('กรุณากรอก Identifier เช่น redtopia-flac-01');
-            return;
-        }
-        isSyncingIA = true;
-        try {
-            const res = await fetch('http://127.0.0.1:8787/api/sync-ia', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    identifier: iaIdentifier,
-                    albumId: selectedAlbum,
-                    artistIds: selectedArtists,
-                    genreIds: selectedGenres
-                })
-            });
-            const result = await res.json();
-            if (result.success) {
-                alert(`✅ ${result.message}`);
-                loadTracks();
-                iaIdentifier = '';
-            } else {
-                alert('❌ เกิดข้อผิดพลาด: ' + result.error);
-            }
-        } catch (error) {
-            alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
-        }
-        isSyncingIA = false;
-    }
-
-    let searchArtistText = $state('');
-    let searchGenreText = $state('');
-
-    let filteredEditArtists = $derived(
-        availableArtists.filter(a => a.name.toLowerCase().includes(searchArtistText.toLowerCase()))
-    );
-    let filteredEditGenres = $derived(
-        availableGenres.filter(g => g.name.toLowerCase().includes(searchGenreText.toLowerCase()))
-    );
-
-    async function loadMetadata() {
-        const [metaRes, albumRes] = await Promise.all([
-            fetch('http://127.0.0.1:8787/api/metadata'),
-            fetch('http://127.0.0.1:8787/api/albums')
-        ]);
-        const metaData = await metaRes.json();
-        const albumData = await albumRes.json();
-        
-        if (metaData.success) {
-            availableArtists = metaData.artists;
-            availableGenres = metaData.genres;
-        }
-        if (albumData.success) availableAlbums = albumData.data;
-    }
-
-    async function loadTracks(page = 1) {
-        currentPage = page;
-        const queryParams = new URLSearchParams({
-            page: currentPage.toString(),
-            limit: '20',
-            search: searchQuery,
-            artist: filterArtist,
-            genre: filterGenre,
-            album: filterAlbum
-        });
-
-        const res = await fetch(`http://127.0.0.1:8787/api/tracks?${queryParams.toString()}`);
-        const data = await res.json();
-        if (data.success) {
-            allTracks = data.data;
-            totalPages = data.pagination.totalPages;
-            totalTracks = data.pagination.totalTracks;
-        }
-    }
-
-    function applyFilter(e: Event) {
-        e.preventDefault();
-        loadTracks(1);
-    }
-
-    async function handleFileSelection(e: Event) {
-        if (!files) return;
-        uploadQueue = []; 
-
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            let rawTitle = file.name.replace(/\.[^/.]+$/, ""); 
-            let cleanTitle = rawTitle.replace(/^\d+[\s-._]*/, "");
-            const durationSec = await getAudioDuration(file);
-            
-            uploadQueue.push({
-                file: file,
-                title: cleanTitle,
-                duration: formatDuration(durationSec),
-                status: 'pending' 
-            });
-        }
-    }
-
-    async function startBatchUpload() {
-        isUploadingBatch = true;
-        for (let i = 0; i < uploadQueue.length; i++) {
-            if (uploadQueue[i].status === 'success') continue;
-            uploadQueue[i].status = 'uploading';
-            const track = uploadQueue[i];
-
-            const formData = new FormData();
-            formData.append('title', track.title);
-            formData.append('file', track.file);
-            formData.append('duration', track.duration);
-            formData.append('artistIds', JSON.stringify(selectedArtists));
-            formData.append('genreIds', JSON.stringify(selectedGenres));
-            if (selectedAlbum) formData.append('albumId', selectedAlbum);
-
-            try {
-                const res = await fetch('http://127.0.0.1:8787/api/upload', {
-                    method: 'POST', body: formData
-                });
-                const result = await res.json();
-                uploadQueue[i].status = result.success ? 'success' : 'error';
-            } catch (error) {
-                uploadQueue[i].status = 'error';
-            }
-        }
-        isUploadingBatch = false;
-        files = null; 
-        loadTracks(); 
-        alert('อัปโหลด Batch เสร็จสิ้น!');
-    }
-
-    async function createAlbum() {
-        if (!newAlbumTitle) return;
-        const res = await fetch('http://127.0.0.1:8787/api/albums', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ title: newAlbumTitle, adminId: adminAuthState.currentAdmin?.id }) 
-        });
-        const result = await res.json();
-        if (result.success) { newAlbumTitle = ''; loadMetadata(); selectedAlbum = result.data.id; }
-    }
-
-    async function createArtist() {
-        if (!newArtistName) return;
-        const res = await fetch('http://127.0.0.1:8787/api/artists', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ name: newArtistName, adminId: adminAuthState.currentAdmin?.id }) 
-        });
-        const result = await res.json();
-        if (result.success) { newArtistName = ''; loadMetadata(); selectedArtists = [...selectedArtists, result.data.id]; }
-    }
-
-    async function createGenre() {
-        if (!newGenreName) return;
-        const res = await fetch('http://127.0.0.1:8787/api/genres', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ name: newGenreName, adminId: adminAuthState.currentAdmin?.id }) 
-        });
-        const result = await res.json();
-        if (result.success) { newGenreName = ''; loadMetadata(); selectedGenres = [...selectedGenres, result.data.id]; }
-    }
-
-    function startEdit(track: any) {
-        isEditMode = true;
-        editingTrackId = track.id;
-        editTitle = track.title;
-        selectedArtists = track.artists ? track.artists.map((a: any) => a.id) : [];
-        selectedGenres = track.genres ? track.genres.map((g: any) => g.id) : [];
-        selectedAlbum = track.album ? track.album.id : '';
-        window.scrollTo({ top: 0, behavior: 'smooth' }); 
-    }
-
-    function cancelEdit() {
-        isEditMode = false;
-        editingTrackId = null;
-        editTitle = '';
-        selectedArtists = [];
-        selectedGenres = [];
-        selectedAlbum = '';
-    }
-
-    async function saveEdit() {
-        if (!editingTrackId) return;
-        isSavingEdit = true;
-        try {
-            const res = await fetch(`http://127.0.0.1:8787/api/tracks/${editingTrackId}`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: editTitle,
-                    artistIds: selectedArtists,
-                    genreIds: selectedGenres,
-                    albumId: selectedAlbum
-                })
-            });
-            const result = await res.json();
-            if (result.success) {
-                alert('แก้ไขข้อมูลสำเร็จ!');
-                cancelEdit();
-                loadTracks();
-            } else alert('เกิดข้อผิดพลาด: ' + result.error);
-        } catch (error) {
-            alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
-        }
-        isSavingEdit = false;
-    }
-
-    async function handleDelete(trackId: string, trackTitle: string) {
-        if (!confirm(`ลบเพลง "${trackTitle}" ถาวรหรือไม่?`)) return;
-        try {
-            const res = await fetch(`http://127.0.0.1:8787/api/tracks/${trackId}`, { method: 'DELETE' });
-            const result = await res.json();
-            if (result.success) {
-                loadTracks(); 
-                if (editingTrackId === trackId) cancelEdit();
-            } else alert('ลบไม่ได้: ' + result.error);
-        } catch (error) {
-            alert('เซิร์ฟเวอร์ขัดข้อง');
-        }
-    }
-
-    function toggleSelection(array: string[], id: string) {
-        return array.includes(id) ? array.filter(itemId => itemId !== id) : [...array, id];
-    }
-    function getAudioDuration(file: File): Promise<number> {
-        return new Promise((resolve) => {
-            const url = URL.createObjectURL(file);
-            const audio = new Audio(url);
-            audio.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(audio.duration); };
-        });
-    }
-    function formatDuration(totalSeconds: number): string {
-        const h = Math.floor(totalSeconds / 3600);
-        const m = Math.floor((totalSeconds % 3600) / 60);
-        const s = Math.floor(totalSeconds % 60);
-        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
+    const formatCurrency = (val: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(val);
 </script>
 
-<div class="max-w-6xl mx-auto flex flex-col gap-10">
-    <div class="flex flex-col gap-2">
-        <h1 class="text-4xl font-black text-primary tracking-tight">🎛 Admin Dashboard</h1>
-        <p class="text-text-muted font-medium">Track and Metadata Management Center</p>
-    </div>
-
-    <!-- Admin Navigation Modules -->
-    <section class="bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
-        <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-4">Quick Navigation</p>
-        <div class="flex flex-wrap gap-3">
-            <a href="/admin/users" class="nav-module-btn border-l-indigo-500 hover:border-indigo-500">👤 Users</a>
-            <a href="/admin/merch" class="nav-module-btn border-l-primary hover:border-primary">🛍️ Store</a>
-            <a href="/admin/orders" class="nav-module-btn border-l-amber-500 hover:border-amber-500">📦 Orders</a>
-            <a href="/admin/ranking" class="nav-module-btn border-l-pink-500 hover:border-pink-500">🏆 Ranking</a>
-            <a href="/admin/logs" class="nav-module-btn border-l-gray-500 hover:border-gray-500">🛡️ Logs</a>
+<div class="command-center">
+    <!-- Header -->
+    <header class="dashboard-header">
+        <div class="header-content">
+            <h1 class="title">Command Center</h1>
+            <p class="subtitle">System Overview & Administrative Intelligence</p>
         </div>
-    </section>
-
-    {#if !isEditMode}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <!-- 1. Metadata Config -->
-            <section class="bg-bg-elevated p-8 rounded-2xl border border-white/5 shadow-2xl flex flex-col gap-8">
-                <h2 class="text-2xl font-black mb-2">1. Metadata for Batch</h2>
-                
-                <div class="space-y-6">
-                    <!-- Album -->
-                    <div class="flex flex-col gap-2 p-5 bg-bg-highlight rounded-xl border border-white/5">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Select Album</label>
-                        <select bind:value={selectedAlbum} class="bg-bg-elevated border-none rounded-lg py-2.5 px-3 text-sm focus:ring-2 focus:ring-primary outline-none">
-                            <option value="">-- No Album (Single) --</option>
-                            {#each availableAlbums as album}
-                                <option value={album.id}>{album.title}</option>
-                            {/each}
-                        </select>
-                        <div class="flex gap-2 mt-2">
-                            <input type="text" bind:value={newAlbumTitle} placeholder="Or create new..." class="flex-1 bg-bg-elevated border-none rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                            <button onclick={createAlbum} class="bg-white text-black px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 active:scale-95 transition-transform">Create</button>
-                        </div>
-                    </div>
-
-                    <!-- Artists -->
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Artists</label>
-                        <input type="text" bind:value={searchArtistText} placeholder="🔍 Filter artists..." class="bg-bg-highlight border-none rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-primary outline-none mb-2" />
-                        <div class="h-48 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
-                            {#each filteredEditArtists as artist}
-                                <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
-                                    <input type="checkbox" bind:group={selectedArtists} value={artist.id} class="rounded border-gray-600 bg-bg-elevated text-primary focus:ring-primary">
-                                    <span class="text-sm font-medium">{artist.name}</span>
-                                </label>
-                            {:else}
-                                <p class="text-text-muted text-xs text-center mt-4 italic">No artists found</p>
-                            {/each}
-                        </div>
-                        <div class="flex gap-2 mt-2">
-                            <input type="text" bind:value={newArtistName} placeholder="+ Add artist..." class="flex-1 bg-bg-highlight border-none rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                            <button onclick={createArtist} class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-500 transition-colors">Add</button>
-                        </div>
-                    </div>
-
-                    <!-- Genres -->
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Genres</label>
-                        <input type="text" bind:value={searchGenreText} placeholder="🔍 Filter genres..." class="bg-bg-highlight border-none rounded-xl py-2.5 px-4 text-sm focus:ring-2 focus:ring-primary outline-none mb-2" />
-                        <div class="h-48 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
-                            {#each filteredEditGenres as genre}
-                                <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
-                                    <input type="checkbox" bind:group={selectedGenres} value={genre.id} class="rounded border-gray-600 bg-bg-elevated text-primary focus:ring-primary">
-                                    <span class="text-sm font-medium">{genre.name}</span>
-                                </label>
-                            {:else}
-                                <p class="text-text-muted text-xs text-center mt-4 italic">No genres found</p>
-                            {/each}
-                        </div>
-                        <div class="flex gap-2 mt-2">
-                            <input type="text" bind:value={newGenreName} placeholder="+ Add genre..." class="flex-1 bg-bg-highlight border-none rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                            <button onclick={createGenre} class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-500 transition-colors">Add</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 2. File Selection -->
-            <section class="bg-bg-elevated p-8 rounded-2xl border border-white/5 shadow-2xl flex flex-col gap-6">
-                <h2 class="text-2xl font-black mb-2">2. Upload Files</h2>
-                <div class="relative group">
-                    <input 
-                        type="file" accept=".mp3, .wav, .flac" multiple 
-                        bind:files={files} onchange={handleFileSelection}
-                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    />
-                    <div class="border-2 border-dashed border-primary/30 group-hover:border-primary/60 rounded-2xl p-10 text-center transition-all bg-primary/5">
-                        <span class="text-4xl mb-4 block">🎵</span>
-                        <p class="font-bold text-primary">Click or drag files to upload</p>
-                        <p class="text-xs text-text-muted mt-2">MP3, WAV, or FLAC supported</p>
-                    </div>
-                </div>
-
-                {#if uploadQueue.length > 0}
-                    <div class="flex-1 overflow-y-auto max-h-[500px] flex flex-col gap-2 pr-2">
-                        {#each uploadQueue as track}
-                            <div class="bg-bg-highlight p-4 rounded-xl flex justify-between items-center border border-white/5">
-                                <div class="min-w-0">
-                                    <input type="text" bind:value={track.title} class="bg-transparent border-none p-0 font-bold text-sm w-full outline-none focus:text-primary" />
-                                    <span class="text-[10px] text-text-muted font-bold tracking-widest uppercase">{track.duration}</span>
-                                </div>
-                                <div class="text-xs font-black">
-                                    {#if track.status === 'pending'} <span class="text-text-muted">WAITING</span>
-                                    {:else if track.status === 'uploading'} <span class="text-indigo-400 animate-pulse">UPLOADING...</span>
-                                    {:else if track.status === 'success'} <span class="text-primary">COMPLETED</span>
-                                    {:else} <span class="text-red-500">ERROR</span>
-                                    {/if}
-                                </div>
-                            </div>
-                        {/each}
-                    </div>
-
-                    <button 
-                        onclick={startBatchUpload} disabled={isUploadingBatch}
-                        class="w-full bg-primary hover:bg-primary-hover text-black py-4 rounded-full font-black text-lg transition-all shadow-xl disabled:opacity-50"
-                    >
-                        {isUploadingBatch ? 'Processing Batch...' : `Upload ${uploadQueue.length} Tracks`}
-                    </button>
-                {/if}
-            </section>
+        <div class="admin-badge">
+            <span class="pulse-icon"></span>
+            System Live: {adminAuthState.currentAdmin?.username}
         </div>
+    </header>
 
-        <!-- IA Sync -->
-        <section class="bg-indigo-900/20 p-8 rounded-2xl border border-indigo-500/30 shadow-2xl flex flex-col gap-4">
-            <h2 class="text-2xl font-black text-indigo-300">🌐 Internet Archive Sync</h2>
-            <p class="text-sm text-indigo-200/60 max-w-2xl">
-                Automatically import all audio files from an IA collection. Metadata will be applied based on your selections in Box 1.
-            </p>
-            <div class="flex flex-col md:flex-row gap-4 items-end">
-                <div class="flex-1 w-full">
-                    <label class="text-xs font-bold uppercase tracking-wider text-indigo-300 ml-1">IA Identifier</label>
-                    <input type="text" bind:value={iaIdentifier} placeholder="e.g. redtopia-flac-01" class="w-full bg-bg-highlight border-indigo-500/30 border rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none mt-1.5" />
-                </div>
-                <button 
-                    onclick={syncFromIA} 
-                    disabled={isSyncingIA}
-                    class="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3.5 rounded-xl font-black transition-all disabled:opacity-50 h-[50px] shadow-lg"
-                >
-                    {isSyncingIA ? 'Syncing...' : 'Start IA Import ⚡'}
-                </button>
+    {#if isLoading}
+        {:else}
+        {#if fetchErrors.length > 0}
+            <div class="system-warning" style="background: #7f1d1d; color: #fca5a5; padding: 10px; border-radius: 8px; margin-bottom: 20px; font-family: monospace;">
+                ⚠️ <strong>System Warning:</strong> {fetchErrors.join(' | ')}
+            </div>
+        {/if}
+        <!-- Zone 1: KPIs -->
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-label">Total Users</span>
+                <span class="kpi-value">{totalUsers.toLocaleString()}</span>
+                <div class="kpi-trend positive">{activeUsers} Active Accounts</div>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Tracks in Database</span>
+                <span class="kpi-value">{totalTracksCount.toLocaleString()}</span>
+                <div class="kpi-trend premium">Indexed Audio Files</div>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Total Gross Revenue</span>
+                <span class="kpi-value text-primary">{formatCurrency(totalRevenue)}</span>
+                <div class="kpi-trend">From {orders.length} Completed Orders</div>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Average Order Value (AOV)</span>
+                <span class="kpi-value">{formatCurrency(avgOrderValue)}</span>
+                <div class="kpi-trend">Per Transaction</div>
             </div>
         </section>
 
-    {:else}
-        <!-- ================= EDIT MODE ================= -->
-        <section class="bg-bg-elevated p-10 rounded-3xl border-2 border-primary/50 shadow-2xl flex flex-col gap-8 animate-in zoom-in duration-300">
-            <h2 class="text-3xl font-black text-primary">✏️ Edit Track</h2>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div class="space-y-6">
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Track Title</label>
-                        <input type="text" bind:value={editTitle} class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-base focus:ring-2 focus:ring-primary outline-none" />
+        <!-- Zone 2: Quick Actions -->
+        <section class="quick-actions">
+            <h2 class="section-title">Operational Modules</h2>
+            <div class="action-grid">
+                <a href="/admin/tracks" class="action-btn tracks">
+                    <span class="icon">🎵</span>
+                    <div class="details">
+                        <strong>Music Library</strong>
+                        <span>Upload & Sync</span>
                     </div>
-
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Album</label>
-                        <select bind:value={selectedAlbum} class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none">
-                            <option value="">-- No Album (Single) --</option>
-                            {#each availableAlbums as album}
-                                <option value={album.id}>{album.title}</option>
-                            {/each}
-                        </select>
+                </a>
+                <a href="/admin/artists" class="action-btn artists">
+                    <span class="icon">🎤</span>
+                    <div class="details">
+                        <strong>Artists</strong>
+                        <span>Profiles & Creators</span>
                     </div>
-                </div>
-
-                <div class="space-y-6">
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Artists</label>
-                        <input type="text" bind:value={searchArtistText} placeholder="Filter..." class="bg-bg-highlight border-none rounded-xl py-2 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                        <div class="h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl p-4 flex flex-col gap-2 border border-white/5">
-                            {#each filteredEditArtists as artist}
-                                <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" bind:group={selectedArtists} value={artist.id} class="rounded text-primary focus:ring-primary bg-bg-elevated border-gray-600">
-                                    <span class="text-sm">{artist.name}</span>
-                                </label>
-                            {/each}
-                        </div>
+                </a>
+                <a href="/admin/albums" class="action-btn albums">
+                    <span class="icon">💿</span>
+                    <div class="details">
+                        <strong>Albums</strong>
+                        <span>Collections & Covers</span>
                     </div>
-
-                    <div class="flex flex-col gap-2">
-                        <label class="text-xs font-bold uppercase tracking-wider text-text-muted">Genres</label>
-                        <input type="text" bind:value={searchGenreText} placeholder="Filter..." class="bg-bg-highlight border-none rounded-xl py-2 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                        <div class="h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl p-4 flex flex-col gap-2 border border-white/5">
-                            {#each filteredEditGenres as genre}
-                                <label class="flex items-center gap-3 cursor-pointer">
-                                    <input type="checkbox" bind:group={selectedGenres} value={genre.id} class="rounded text-primary focus:ring-primary bg-bg-elevated border-gray-600">
-                                    <span class="text-sm">{genre.name}</span>
-                                </label>
-                            {/each}
-                        </div>
+                </a>
+                <a href="/admin/users" class="action-btn users">
+                    <span class="icon">👤</span>
+                    <div class="details">
+                        <strong>User Control</strong>
+                        <span>Permissions & Ban</span>
                     </div>
-                </div>
+                </a>
+                <a href="/admin/merch" class="action-btn merch">
+                    <span class="icon">🛍️</span>
+                    <div class="details">
+                        <strong>Store Mgmt</strong>
+                        <span>Inventory & Pricing</span>
+                    </div>
+                </a>
+                <a href="/admin/orders" class="action-btn orders">
+                    <span class="icon">📦</span>
+                    <div class="details">
+                        <strong>Order Fulfillment</strong>
+                        <span>Billing & Shipping</span>
+                    </div>
+                </a>
             </div>
+        </section>
 
-            <div class="flex gap-4 mt-6">
-                <button onclick={saveEdit} disabled={isSavingEdit} class="bg-primary hover:bg-primary-hover text-black px-10 py-4 rounded-full font-black text-lg transition-all shadow-xl">
-                    {isSavingEdit ? 'Saving...' : 'Save Changes'}
-                </button>
-                <button onclick={cancelEdit} class="bg-bg-highlight text-white px-10 py-4 rounded-full font-black text-lg hover:bg-bg-surface transition-all">
-                    Cancel
-                </button>
+        <!-- Zone 3: Recent Activities -->
+        <div class="activity-split">
+            <!-- Left: Recent Orders -->
+            <section class="activity-box">
+                <h2 class="section-title">Recent Orders</h2>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each orders.slice(0, 5) as item}
+                                <tr>
+                                    <td class="font-mono text-xs">{item.order.id.slice(0, 8)}...</td>
+                                    <td class="font-bold text-primary">฿{Number(item.order.totalPrice).toLocaleString()}</td>
+                                    <td><span class="status-pill">Paid</span></td>
+                                </tr>
+                            {:else}
+                                <tr><td colspan="3" class="empty">No recent orders</td></tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Right: Security Audit Logs -->
+            <section class="activity-box">
+                <h2 class="section-title">Security Audit</h2>
+                <div class="log-list">
+                    {#each logs.slice(0, 6) as log}
+                        <div class="log-item">
+                            <span class="log-time">{new Date(log.createdAt).toLocaleTimeString()}</span>
+                            <div class="log-details">
+                                <span class="log-actor">{log.actorName}</span>
+                                <span class="log-action">{log.actionType}: {log.actionDetail}</span>
+                            </div>
+                        </div>
+                    {:else}
+                        <p class="empty">No security events logged</p>
+                    {/each}
+                </div>
+            </section>
+        </div>
+
+        <!-- Zone 4: Data Visualization -->
+        <section class="data-viz">
+            <h2 class="section-title">Top Trending Artists</h2>
+            <div class="chart-container">
+                {#each rankings.slice(0, 5) as artist}
+                    <div class="bar-group">
+                        <div class="bar-label">
+                            <span class="artist-name">{artist.name}</span>
+                            <span class="artist-count">{artist.followerCount.toLocaleString()} fans</span>
+                        </div>
+                        <div class="bar-wrapper">
+                            <div class="bar" style="width: {(artist.followerCount / (rankings[0]?.followerCount || 1)) * 100}%"></div>
+                        </div>
+                    </div>
+                {/each}
             </div>
         </section>
     {/if}
-
-    <!-- Tracks List -->
-    <section class="bg-bg-elevated p-8 rounded-3xl border border-white/5 shadow-2xl">
-        <div class="flex items-center justify-between mb-8">
-            <h2 class="text-2xl font-black">Track Library ({totalTracks})</h2>
-        </div>
-        
-        <!-- Filters -->
-        <form onsubmit={applyFilter} class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-10 bg-bg-highlight/50 p-6 rounded-2xl border border-white/5">
-            <div class="lg:col-span-2">
-                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2 block">Search Query</label>
-                <input type="text" bind:value={searchQuery} placeholder="Title or album:..." class="w-full bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
-            </div>
-            
-            <div>
-                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2 block">Artist</label>
-                <input list="artist-list" bind:value={filterArtist} placeholder="Artist..." class="w-full bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                <datalist id="artist-list">
-                    {#each availableArtists as artist}<option value={artist.name}></option>{/each}
-                </datalist>
-            </div>
-
-            <div>
-                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted mb-2 block">Album</label>
-                <input list="album-list" bind:value={filterAlbum} placeholder="Album..." class="w-full bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                <datalist id="album-list">
-                    {#each availableAlbums as album}<option value={album.title}></option>{/each}
-                </datalist>
-            </div>
-
-            <div class="flex items-end">
-                <button type="submit" class="w-full bg-white text-black py-3 rounded-xl font-black hover:scale-105 transition-transform shadow-lg">Filter</button>
-            </div>
-        </form>
-
-        <!-- Tracks Table -->
-        <div class="flex flex-col gap-2">
-            {#each allTracks as track}
-                <div class="group flex items-center justify-between p-4 bg-bg-highlight/30 hover:bg-white/5 rounded-xl border border-transparent hover:border-white/10 transition-all {editingTrackId === track.id ? 'border-primary' : ''}">
-                    <div class="flex flex-col gap-1 min-w-0">
-                        <p class="font-bold text-base truncate">{track.title}</p>
-                        <div class="flex items-center gap-2 text-xs">
-                            <span class="text-primary font-bold">🎤 {track.artists?.length > 0 ? track.artists.map((a: any) => a.name).join(', ') : '-'}</span>
-                            <span class="text-text-muted">•</span>
-                            <span class="text-text-muted font-bold">💿 {track.album ? track.album.title : 'Single'}</span>
-                        </div>
-                        <p class="text-[10px] text-text-muted/60 font-black tracking-widest uppercase mt-1">
-                            Views: {track.viewCount || track.view_count} • Duration: {track.duration}
-                        </p>
-                    </div>
-                    <div class="flex gap-2 shrink-0 ml-4">
-                        <button onclick={() => startEdit(track)} class="bg-indigo-600/20 text-indigo-300 px-4 py-2 rounded-lg text-xs font-black hover:bg-indigo-600 hover:text-white transition-all">EDIT</button>
-                        <button onclick={() => handleDelete(track.id, track.title)} class="bg-red-900/20 text-red-400 px-4 py-2 rounded-lg text-xs font-black hover:bg-red-600 hover:text-white transition-all">DELETE</button>
-                    </div>
-                </div>
-            {:else}
-                <div class="py-20 text-center text-text-muted italic">No tracks found matching your filters.</div>
-            {/each}
-        </div>
-
-        <!-- Pagination -->
-        {#if totalPages > 1}
-            <div class="flex justify-between items-center mt-10 pt-8 border-t border-white/5">
-                <button 
-                    disabled={currentPage === 1} 
-                    onclick={() => loadTracks(currentPage - 1)}
-                    class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
-                >Previous</button>
-                <span class="text-sm font-bold text-text-muted tracking-widest uppercase">Page {currentPage} of {totalPages}</span>
-                <button 
-                    disabled={currentPage === totalPages} 
-                    onclick={() => loadTracks(currentPage + 1)}
-                    class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
-                >Next</button>
-            </div>
-        {/if}
-    </section>
 </div>
 
 <style>
     @reference "../layout.css";
 
-    .nav-module-btn {
-        @apply px-4 py-3 bg-bg-highlight text-white rounded-xl font-black text-sm border border-white/5 transition-all flex items-center gap-2 border-l-4;
+    .command-center {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
+        display: flex;
+        flex-col: gap-10;
+        flex-direction: column;
+        color: #fff;
+        font-family: 'Inter', system-ui, sans-serif;
     }
-    
-    .nav-module-btn:hover {
-        @apply bg-white/10 -translate-y-1 shadow-xl;
+
+    /* Header */
+    .dashboard-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        margin-bottom: 2.5rem;
     }
-    
-    .nav-module-btn:active {
-        @apply translate-y-0;
+    .title {
+        font-size: 2.5rem;
+        font-weight: 900;
+        letter-spacing: -0.025em;
+        background: linear-gradient(to right, #fff, #a855f7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+        color: rgba(255, 255, 255, 0.5);
+        font-weight: 500;
+    }
+    .admin-badge {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.5rem 1rem;
+        border-radius: 99px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 0.8rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .pulse-icon {
+        width: 8px;
+        height: 8px;
+        background: #10b981;
+        border-radius: 50%;
+        box-shadow: 0 0 10px #10b981;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    /* Loader */
+    .loader-container {
+        height: 400px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        color: rgba(255, 255, 255, 0.5);
+    }
+    .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(168, 85, 247, 0.1);
+        border-top-color: #a855f7;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Zone 1: KPIs */
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 3rem;
+    }
+    .kpi-card {
+        background: #111;
+        padding: 1.5rem;
+        border-radius: 1.25rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.2s, border-color 0.2s;
+    }
+    .kpi-card:hover {
+        transform: translateY(-4px);
+        border-color: rgba(168, 85, 247, 0.3);
+    }
+    .kpi-label {
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: rgba(255, 255, 255, 0.4);
+        margin-bottom: 0.5rem;
+    }
+    .kpi-value {
+        font-size: 1.875rem;
+        font-weight: 900;
+        margin-bottom: 0.5rem;
+    }
+    .kpi-trend {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.3);
+    }
+    .kpi-trend.positive { color: #10b981; }
+    .kpi-trend.premium { color: #a855f7; }
+
+    /* Zone 2: Quick Actions */
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin-bottom: 1.5rem;
+        color: #fff;
+    }
+    .quick-actions {
+        margin-bottom: 3rem;
+    }
+    .action-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1rem;
+    }
+    .action-btn {
+        background: rgba(255, 255, 255, 0.03);
+        padding: 1.25rem;
+        border-radius: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+    .action-btn:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.1);
+        transform: scale(1.02);
+    }
+    .action-btn .icon {
+        font-size: 1.5rem;
+        background: rgba(255, 255, 255, 0.05);
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+    }
+    .action-btn .details {
+        display: flex;
+        flex-direction: column;
+    }
+    .action-btn strong {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #fff;
+    }
+    .action-btn span {
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* Zone 3: Recent Activities */
+    .activity-split {
+        display: grid;
+        grid-template-columns: 1.5fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 3rem;
+    }
+    .activity-box {
+        background: #111;
+        padding: 1.5rem;
+        border-radius: 1.25rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .table-wrapper {
+        overflow-x: auto;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    th {
+        text-align: left;
+        font-size: 0.7rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.3);
+        padding-bottom: 1rem;
+    }
+    td {
+        padding: 0.75rem 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.03);
+        font-size: 0.875rem;
+    }
+    .status-pill {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+        padding: 0.2rem 0.6rem;
+        border-radius: 99px;
+        font-size: 0.65rem;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+
+    .log-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .log-item {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.8rem;
+    }
+    .log-time {
+        color: rgba(255, 255, 255, 0.2);
+        font-family: monospace;
+        flex-shrink: 0;
+    }
+    .log-details {
+        display: flex;
+        flex-direction: column;
+    }
+    .log-actor {
+        font-weight: 700;
+        color: #a855f7;
+    }
+    .log-action {
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* Zone 4: Data Viz */
+    .data-viz {
+        background: #111;
+        padding: 1.5rem;
+        border-radius: 1.25rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .chart-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+    .bar-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .bar-label {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+        font-weight: 700;
+    }
+    .artist-name { color: #fff; }
+    .artist-count { color: rgba(255, 255, 255, 0.4); }
+    .bar-wrapper {
+        height: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 99px;
+        overflow: hidden;
+    }
+    .bar {
+        height: 100%;
+        background: linear-gradient(to right, #a855f7, #6366f1);
+        border-radius: 99px;
+        transition: width 1s ease-out;
+    }
+
+    .empty {
+        text-align: center;
+        padding: 2rem;
+        color: rgba(255, 255, 255, 0.2);
+        font-style: italic;
+        font-size: 0.8rem;
+    }
+
+    @media (max-width: 768px) {
+        .activity-split {
+            grid-template-columns: 1fr;
+        }
+        .dashboard-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1rem;
+        }
     }
 </style>

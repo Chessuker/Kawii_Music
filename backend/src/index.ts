@@ -2004,4 +2004,103 @@ app.get('/api/admin/artists/ranking', async (c) => {
   }
 });
 
+// --- 43. API Admin: แก้ไขข้อมูลศิลปิน (Update Artist) ---
+app.put('/api/admin/artists/:id', async (c) => {
+  try {
+    const artistId = c.req.param('id');
+    const { name, adminId } = await c.req.json();
+    if (!name) return c.json({ error: 'กรุณากรอกชื่อศิลปิน' }, 400);
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    await db.update(artists)
+      .set({ name })
+      .where(eq(artists.id, artistId));
+
+    await insertAuditLog(db, 'admin', 'update', `Updated artist: ${name} (${artistId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'อัปเดตข้อมูลศิลปินเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Update Artist Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 44. API Admin: ลบศิลปิน (Delete Artist) ---
+app.delete('/api/admin/artists/:id', async (c) => {
+  try {
+    const artistId = c.req.param('id');
+    const { adminId } = await c.req.json();
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // เช็คก่อนว่ามีศิลปินนี้ไหม
+    const target = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (target.length === 0) return c.json({ error: 'ไม่พบศิลปิน' }, 404);
+
+    await db.delete(artists).where(eq(artists.id, artistId));
+    await insertAuditLog(db, 'admin', 'delete', `Deleted artist: ${target[0].name} (${artistId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'ลบศิลปินเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Delete Artist Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 45. API Admin: แก้ไขข้อมูลอัลบั้ม (Update Album) ---
+app.put('/api/admin/albums/:id', async (c) => {
+  try {
+    const albumId = c.req.param('id');
+    const { title, imgUrl, artistIds, adminId } = await c.req.json();
+    if (!title) return c.json({ error: 'กรุณากรอกชื่ออัลบั้ม' }, 400);
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    await db.update(albums)
+      .set({ title, imgUrl: imgUrl || null })
+      .where(eq(albums.id, albumId));
+
+    // อัปเดตศิลปินของอัลบั้ม
+    await db.delete(albumArtists).where(eq((albumArtists as any).albumId || (albumArtists as any).album_id, albumId));
+    if (artistIds && Array.isArray(artistIds) && artistIds.length > 0) {
+      await db.insert(albumArtists).values(
+        artistIds.map((id: string) => ({ albumId, artistId: id }))
+      );
+    }
+
+    await insertAuditLog(db, 'admin', 'update', `Updated album: ${title} (${albumId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'อัปเดตข้อมูลอัลบั้มเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Update Album Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 46. API Admin: ลบอัลบั้ม (Delete Album) ---
+app.delete('/api/admin/albums/:id', async (c) => {
+  try {
+    const albumId = c.req.param('id');
+    const { adminId } = await c.req.json();
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const target = await db.select().from(albums).where(eq(albums.id, albumId));
+    if (target.length === 0) return c.json({ error: 'ไม่พบอัลบั้ม' }, 404);
+
+    await db.delete(albums).where(eq(albums.id, albumId));
+    await insertAuditLog(db, 'admin', 'delete', `Deleted album: ${target[0].title} (${albumId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'ลบอัลบั้มเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Delete Album Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 export default app;

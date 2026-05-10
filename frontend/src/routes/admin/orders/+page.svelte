@@ -20,30 +20,6 @@
         loading = false;
     }
 
-    async function cancelOrder(orderId: string) {
-        if (!confirm("⚠️ Warning: Are you sure you want to cancel this order?\n\nAll billing information and product details will be permanently removed from the database and cannot be recovered.")) return;
-
-        const adminId = adminAuthState.currentAdmin?.id;
-        
-        try {
-            const res = await fetch(`http://127.0.0.1:8787/api/admin/orders/${orderId}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminId })
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                orders = orders.filter(o => o.order.id !== orderId);
-                alert("✅ Order cancelled successfully");
-            } else {
-                alert("❌ " + data.error);
-            }
-        } catch (err) {
-            alert("Connection error occurred");
-        }
-    }
-
     function formatDate(dateStr: string) {
         return new Date(dateStr).toLocaleString(undefined, {
             year: 'numeric', month: 'short', day: 'numeric',
@@ -61,8 +37,23 @@
     
     <header>
         <h1 class="text-4xl font-black tracking-tight mb-2">📦 Order Management</h1>
-        <p class="text-text-muted font-medium">Verify sales and manage problematic billing</p>
+        <p class="text-text-muted font-medium">Verify sales and monitor store performance</p>
     </header>
+
+    <!-- Admin Navigation Modules -->
+    <section class="bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
+        <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-4">Quick Navigation</p>
+        <div class="flex flex-wrap gap-3">
+            <a href="/admin/tracks" class="nav-module-btn border-l-teal-500 hover:border-teal-500">🎵 Tracks</a>
+            <a href="/admin/artists" class="nav-module-btn border-l-emerald-500 hover:border-emerald-500">🎤 Artists</a>
+            <a href="/admin/albums" class="nav-module-btn border-l-sky-500 hover:border-sky-500">💿 Albums</a>
+            <a href="/admin/users" class="nav-module-btn border-l-indigo-500 hover:border-indigo-500">👤 Users</a>
+            <a href="/admin/merch" class="nav-module-btn border-l-primary hover:border-primary">🛍️ Store</a>
+            <a href="/admin/orders" class="nav-module-btn border-l-amber-500 bg-white/5 border-amber-500">📦 Orders</a>
+            <a href="/admin/ranking" class="nav-module-btn border-l-pink-500 hover:border-pink-500">🏆 Ranking</a>
+            <a href="/admin/logs" class="nav-module-btn border-l-gray-500 hover:border-gray-500">🛡️ Logs</a>
+        </div>
+    </section>
 
     {#if loading}
         <div class="flex justify-center items-center h-64">
@@ -85,8 +76,7 @@
                         <th class="p-6">Time Purchase</th>
                         <th class="p-6">Customer</th>
                         <th class="p-6 text-center">Items</th>
-                        <th class="p-6">Total (THB)</th>
-                        <th class="p-6 text-right">Action</th>
+                        <th class="p-6 text-right">Total (THB)</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-white/5">
@@ -106,18 +96,10 @@
                             <td class="p-6 text-center font-bold">
                                 {item.order.totalItemCount}
                             </td>
-                            <td class="p-6">
+                            <td class="p-6 text-right">
                                 <span class="font-black text-primary text-lg">
                                     ฿{Number(item.order.totalPrice).toLocaleString()}
                                 </span>
-                            </td>
-                            <td class="p-6 text-right">
-                                <button 
-                                    class="text-xs font-black px-4 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-lg" 
-                                    onclick={() => cancelOrder(item.order.id)}
-                                >
-                                    CANCEL BILL
-                                </button>
                             </td>
                         </tr>
                     {/each}
@@ -126,3 +108,19 @@
         </div>
     {/if}
 </div>
+
+<style>
+    @reference "../../layout.css";
+
+    .nav-module-btn {
+        @apply px-4 py-3 bg-bg-highlight text-white rounded-xl font-black text-sm border border-white/5 transition-all flex items-center gap-2 border-l-4;
+    }
+    
+    .nav-module-btn:hover {
+        @apply bg-white/10 -translate-y-1 shadow-xl;
+    }
+    
+    .nav-module-btn:active {
+        @apply translate-y-0;
+    }
+</style>
