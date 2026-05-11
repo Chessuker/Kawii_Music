@@ -16,6 +16,7 @@
     let volume = $state(0.6);
 
     let subInfo = $state<any>(null);
+    let cartCount = $state(0);
 
     $effect(() => {
         if (authState.currentUser?.id) {
@@ -23,6 +24,29 @@
         } else {
             subInfo = null;
         }
+
+        // Update cart count from localStorage
+        const updateCartCount = () => {
+            const savedCart = localStorage.getItem('kawii_cart');
+            if (savedCart) {
+                const cart = JSON.parse(savedCart);
+                cartCount = cart.reduce((sum: number, item: any) => sum + item.quantity, 0);
+            } else {
+                cartCount = 0;
+            }
+        };
+
+        updateCartCount();
+        
+        // Listen for storage changes (works across tabs)
+        window.addEventListener('storage', updateCartCount);
+        // Also listen for custom event if we add items in the same tab
+        window.addEventListener('cart-updated', updateCartCount);
+
+        return () => {
+            window.removeEventListener('storage', updateCartCount);
+            window.removeEventListener('cart-updated', updateCartCount);
+        };
     });
 
     async function fetchSubStatus(userId: string) {
@@ -131,7 +155,16 @@
                 </button>
             </div>
 
-            <div>
+            <div class="flex items-center gap-4">
+                <a href="/merch/checkout" class="w-10 h-10 flex items-center justify-center bg-black/40 hover:bg-black/60 rounded-full text-xl transition-colors relative" title="Shopping Cart">
+                    🛒
+                    {#if cartCount > 0}
+                        <span class="absolute -top-1 -right-1 bg-primary text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-bg-surface">
+                            {cartCount > 99 ? '99+' : cartCount}
+                        </span>
+                    {/if}
+                </a>
+
                 {#if authState.currentUser}
                     <div class="flex items-center gap-4">
                         <a href="/profile" class="flex items-center gap-2 bg-black/50 py-1 pl-1 pr-3 rounded-full text-sm font-bold hover:bg-white/10 transition-colors">
