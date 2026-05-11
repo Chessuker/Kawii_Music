@@ -24,6 +24,19 @@
         selectedArtistIds: [] as string[]
     });
 
+    let artistSearchTerm = $state('');
+    let filteredArtists = $derived(
+        allArtists
+            .filter((a: any) => a.name.toLowerCase().includes(artistSearchTerm.toLowerCase()))
+            .sort((a: any, b: any) => {
+                // ดันคนที่ถูกเลือกแล้วขึ้นมาบนสุด
+                const aSelected = formData.selectedArtistIds.includes(a.id);
+                const bSelected = formData.selectedArtistIds.includes(b.id);
+                return aSelected === bSelected ? 0 : aSelected ? -1 : 1;
+            })
+            .slice(0, 20) // แสดงผลแค่ 20 คนแรกเพื่อประสิทธิภาพที่ดี
+    );
+
     onMount(async () => {
         await Promise.all([fetchMerch(), fetchArtists()]);
         loading = false;
@@ -66,6 +79,8 @@
     });
 
     function openModal(item: any = null) {
+        artistSearchTerm = '';
+        
         if (item) {
             isEditing = true;
             editItemId = item.id;
@@ -308,8 +323,16 @@
 
                 <div class="flex flex-col gap-2">
                     <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Link to Artists</label>
+                    
+                    <input 
+                        type="text" 
+                        bind:value={artistSearchTerm} 
+                        placeholder="🔍 Search artists by name..." 
+                        class="bg-bg-elevated border border-white/10 rounded-lg py-2 px-3 text-sm focus:ring-1 focus:ring-primary outline-none transition-all"
+                    />
+
                     <div class="max-h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
-                        {#each allArtists as artist}
+                        {#each filteredArtists as artist}
                             <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
                                 <input 
                                     type="checkbox" 
@@ -319,6 +342,10 @@
                                 />
                                 <span class="text-sm font-medium">{artist.name}</span>
                             </label>
+                        {:else}
+                            <p class="text-text-muted text-xs text-center mt-4 italic">
+                                {artistSearchTerm ? `No artists found matching "${artistSearchTerm}"` : 'No artists available'}
+                            </p>
                         {/each}
                     </div>
                 </div>

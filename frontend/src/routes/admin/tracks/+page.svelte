@@ -80,15 +80,47 @@
     let searchArtistText = $state('');
     let searchGenreText = $state('');
 
-    let filteredEditAlbums = $derived(
-        availableAlbums.filter(a => a.title.toLowerCase().includes(searchAlbumText.toLowerCase())).slice(0, 50)
-    );
-    let filteredEditArtists = $derived(
-        availableArtists.filter(a => a.name.toLowerCase().includes(searchArtistText.toLowerCase())).slice(0, 50)
-    );
-    let filteredEditGenres = $derived(
-        availableGenres.filter(g => g.name.toLowerCase().includes(searchGenreText.toLowerCase())).slice(0, 50)
-    );
+    // 1. กรองอัลบั้ม (เลือกได้แค่ 1 อัน)
+    let filteredEditAlbums = $derived.by(() => {
+        const query = searchAlbumText.toLowerCase(); // 👈 ดึงออกมาแปลงค่าแค่ครั้งเดียว (O(1))
+        return availableAlbums
+            .filter(a => a.title.toLowerCase().includes(query))
+            .sort((a, b) => {
+                // ดันอัลบั้มที่เลือกไว้ขึ้นบนสุด
+                const aSelected = selectedAlbum === a.id;
+                const bSelected = selectedAlbum === b.id;
+                return aSelected === bSelected ? 0 : aSelected ? -1 : 1;
+            })
+            .slice(0, 20); // 👈 ลดเหลือ 20 จะเรนเดอร์ DOM ได้เร็วกว่า 50 มาก
+    });
+
+    // 2. กรองศิลปิน (เลือกได้หลายคน)
+    let filteredEditArtists = $derived.by(() => {
+        const query = searchArtistText.toLowerCase();
+        return availableArtists
+            .filter(a => a.name.toLowerCase().includes(query))
+            .sort((a, b) => {
+                // ดันคนที่ติ๊กเลือกไว้ขึ้นบนสุด
+                const aSelected = selectedArtists.includes(a.id);
+                const bSelected = selectedArtists.includes(b.id);
+                return aSelected === bSelected ? 0 : aSelected ? -1 : 1;
+            })
+            .slice(0, 20);
+    });
+
+    // 3. กรองแนวเพลง (เลือกได้หลายอัน)
+    let filteredEditGenres = $derived.by(() => {
+        const query = searchGenreText.toLowerCase();
+        return availableGenres
+            .filter(g => g.name.toLowerCase().includes(query))
+            .sort((a, b) => {
+                // ดันแนวเพลงที่ติ๊กเลือกไว้ขึ้นบนสุด
+                const aSelected = selectedGenres.includes(a.id);
+                const bSelected = selectedGenres.includes(b.id);
+                return aSelected === bSelected ? 0 : aSelected ? -1 : 1;
+            })
+            .slice(0, 20);
+    });
 
     async function loadMetadata() {
         const [metaRes, albumRes] = await Promise.all([
