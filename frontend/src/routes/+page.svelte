@@ -30,6 +30,9 @@
     let filteredSearchAlbums = $derived(
         availableAlbums.filter(a => a.title.toLowerCase().includes(filterAlbum.toLowerCase())).slice(0, 50)
     );
+    let filteredSearchGenres = $derived(
+        availableGenres.filter(g => g.name.toLowerCase().includes(filterGenre.toLowerCase())).slice(0, 50)
+    );
 
     let recentHistory: any[] = $state([]);
 
@@ -255,12 +258,12 @@
     <!-- Search & Filters -->
     <section class="bg-bg-elevated p-6 rounded-xl shadow-2xl border border-white/5">
         <h2 class="text-xl font-bold mb-6">Search Library</h2>
-        <form onsubmit={handleSearch} class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <form onsubmit={handleSearch} class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div class="relative">
                 <input 
                     type="text" 
                     bind:value={searchQuery} 
-                    placeholder="What do you want to listen to?" 
+                    placeholder="Search titles..." 
                     class="w-full bg-bg-highlight border-none rounded-full py-3 px-12 text-sm focus:ring-2 focus:ring-primary outline-none transition-all"
                 />
                 <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted">🔍</span>
@@ -277,6 +280,13 @@
                 <input list="user-album-list" bind:value={filterAlbum} placeholder="Album" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="user-album-list">
                     {#each filteredSearchAlbums as album}<option value={album.title}></option>{/each}
+                </datalist>
+            </div>
+
+            <div class="relative">
+                <input list="user-genre-list" bind:value={filterGenre} placeholder="Genre" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                <datalist id="user-genre-list">
+                    {#each filteredSearchGenres as genre}<option value={genre.name}></option>{/each}
                 </datalist>
             </div>
 
