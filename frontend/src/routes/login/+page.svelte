@@ -30,63 +30,77 @@
             const data = await res.json();
             if (data.success) {
                 loginUser(data.user);
-                message = isLoginMode ? 'เข้าสู่ระบบสำเร็จ! กำลังกลับไปหน้าแรก...' : 'สมัครสมาชิกสำเร็จ! กำลังเข้าสู่ระบบ...';
-                setTimeout(() => { window.location.href = '/'; }, 1500); // กลับหน้าแรก
+                message = isLoginMode ? '✅ Login successful!' : '✅ Registration successful!';
+                setTimeout(() => { window.location.href = '/'; }, 1000);
             } else {
                 message = '❌ ' + data.error;
             }
         } catch (error) {
-            message = '❌ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้';
+            message = '❌ Server connection failed';
         }
         isProcessing = false;
     }
 </script>
 
-<main style="max-width: 400px; margin: 80px auto; padding: 30px; background: #fff; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-family: sans-serif;">
-    <h2 style="text-align: center; color: #1db954;">
-        {isLoginMode ? '🔑 เข้าสู่ระบบ' : '📝 สมัครสมาชิก'}
-    </h2>
+<div class="min-h-[80vh] flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-bg-elevated p-10 rounded-3xl shadow-2xl border border-white/5 flex flex-col gap-8">
+        <div class="flex flex-col items-center gap-2">
+            <span class="text-5xl mb-2">💜</span>
+            <h1 class="text-3xl font-black tracking-tight">
+                {isLoginMode ? 'Welcome back' : 'Join Kawii Music'}
+            </h1>
+            <p class="text-text-muted text-sm font-medium">
+                {isLoginMode ? 'Log in to continue listening' : 'Create an account to get started'}
+            </p>
+        </div>
 
-    <form onsubmit={handleSubmit} style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
-        {#if !isLoginMode}
-            <div>
-                <label style="display: block; font-weight: bold; margin-bottom: 5px;">Email:</label>
-                <input type="email" bind:value={email} required style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+        <form onsubmit={handleSubmit} class="flex flex-col gap-5">
+            {#if !isLoginMode}
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1" for="email">Email</label>
+                    <input id="email" type="email" bind:value={email} required placeholder="you@example.com" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" />
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1" for="display">Display Name</label>
+                    <input id="display" type="text" bind:value={displayName} required placeholder="How should we call you?" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" />
+                </div>
+                <div class="flex flex-col gap-1.5">
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1" for="pfp">Profile Picture URL</label>
+                    <input id="pfp" type="url" bind:value={pfpUrl} placeholder="https://..." class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" />
+                </div>
+            {/if}
+
+            <div class="flex flex-col gap-1.5">
+                <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1" for="username">Username</label>
+                <input id="username" type="text" bind:value={username} required placeholder="Username" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" />
             </div>
-            <div>
-                <label style="display: block; font-weight: bold; margin-bottom: 5px;">Display Name (ชื่อที่แสดง):</label>
-                <input type="text" bind:value={displayName} required style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+
+            <div class="flex flex-col gap-1.5">
+                <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1" for="password">Password</label>
+                <input id="password" type="password" bind:value={password} required placeholder="••••••••" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" />
             </div>
-            <div>
-                <label style="display: block; font-weight: bold; margin-bottom: 5px;">Profile Picture URL (Optional):</label>
-                <input type="url" bind:value={pfpUrl} placeholder="https://example.com/image.jpg" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+
+            <button type="submit" disabled={isProcessing} class="bg-primary hover:bg-primary-hover text-black font-black py-3.5 rounded-full mt-4 shadow-lg transition-all active:scale-95 disabled:opacity-50">
+                {isProcessing ? 'Processing...' : (isLoginMode ? 'Log In' : 'Sign Up')}
+            </button>
+        </form>
+
+        <div class="flex flex-col items-center gap-4 border-t border-white/5 pt-6">
+            <p class="text-text-muted text-sm font-medium">
+                {isLoginMode ? "Don't have an account?" : "Already have an account?"}
+            </p>
+            <button 
+                onclick={() => { isLoginMode = !isLoginMode; message = ''; }} 
+                class="text-white font-bold hover:underline"
+            >
+                {isLoginMode ? 'Sign up for Kawii Music' : 'Log in here'}
+            </button>
+        </div>
+
+        {#if message}
+            <div class="p-4 rounded-xl text-center text-sm font-bold {message.includes('✅') ? 'bg-primary/10 text-primary' : 'bg-red-500/10 text-red-400'} animate-in fade-in slide-in-from-bottom-2 duration-300">
+                {message}
             </div>
         {/if}
-
-        <div>
-            <label style="display: block; font-weight: bold; margin-bottom: 5px;">Username:</label>
-            <input type="text" bind:value={username} required style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
-        </div>
-
-        <div>
-            <label style="display: block; font-weight: bold; margin-bottom: 5px;">Password:</label>
-            <input type="password" bind:value={password} required style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
-        </div>
-
-        <button type="submit" disabled={isProcessing} style="padding: 12px; background: #1db954; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 10px;">
-            {isProcessing ? 'กำลังประมวลผล...' : (isLoginMode ? 'Login' : 'Register')}
-        </button>
-    </form>
-
-    <div style="text-align: center; margin-top: 15px;">
-        <button onclick={() => { isLoginMode = !isLoginMode; message = ''; }} style="background: none; border: none; color: #666; text-decoration: underline; cursor: pointer;">
-            {isLoginMode ? 'ยังไม่มีบัญชี? สมัครสมาชิกที่นี่' : 'มีบัญชีแล้ว? เข้าสู่ระบบเลย'}
-        </button>
     </div>
-
-    {#if message}
-        <div style="margin-top: 15px; padding: 10px; text-align: center; border-radius: 4px; background: #f4f4f9;">
-            {message}
-        </div>
-    {/if}
-</main>
+</div>

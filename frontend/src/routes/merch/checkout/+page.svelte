@@ -23,6 +23,7 @@
     function removeItem(index: number) {
         cart.splice(index, 1);
         localStorage.setItem('kawii_cart', JSON.stringify(cart));
+        window.dispatchEvent(new Event('cart-updated'));
     }
 
     async function handleCheckout() {
@@ -52,6 +53,7 @@
                 transactionData = data.transaction;
                 cart = []; // ล้างตะกร้าใน State
                 localStorage.removeItem('kawii_cart'); // ล้างตะกร้าในเครื่อง
+                window.dispatchEvent(new Event('cart-updated'));
             } else {
                 error = data.error;
             }

@@ -2,35 +2,18 @@
     import { onMount } from 'svelte';
     import { adminAuthState } from '$lib/adminAuth.svelte';
 
-    let merchItems: any[] = $state([]);
-    let allArtists: any[] = $state([]);
+    let albums: any[] = $state([]);
+    let artists: any[] = $state([]);
     let loading = $state(true);
     let searchTerm = $state('');
-
-    // Pagination State
-    let currentPage = $state(1);
-    let itemsPerPage = 10;
-
-    // State for Modal
-    let isModalOpen = $state(false);
-    let isEditing = $state(false);
-    let isSaving = $state(false);
-    let editItemId = $state<string | null>(null);
-
-    let formData = $state({
-        name: '',
-        price: '',
-        imgUrl: '',
-        selectedArtistIds: [] as string[]
-    });
-
     let artistSearchTerm = $state('');
     let filteredArtists = $derived.by(() => {
         const query = artistSearchTerm.toLowerCase().trim();
-        return allArtists
-            .filter((a: any) => a.name.toLowerCase().includes(query))
-            .sort((a: any, b: any) => {
-                // ดันคนที่ถูกเลือกแล้วขึ้นมาบนสุด
+        return artists
+            // 1. กรองตามคำค้นหา
+            .filter(a => a.name.toLowerCase().includes(query))
+            // 2. ✨ เทคนิคพิเศษ: เรียงให้ศิลปินที่ "ถูกติ๊กเลือกแล้ว" ขึ้นมาอยู่บนสุดเสมอ
+            .sort((a, b) => {
                 const aSelected = formData.selectedArtistIds.includes(a.id);
                 const bSelected = formData.selectedArtistIds.includes(b.id);
                 if (aSelected !== bSelected) return aSelected ? -1 : 1;
@@ -54,19 +37,37 @@
 
                 return 0;
             })
-            .slice(0, 20) // แสดงผลแค่ 20 คนแรกเพื่อประสิทธิภาพที่ดี
+            // 3. ตัดเอามาแสดงผลแค่ 20 คนแรก เพื่อให้ UI ลื่นไหล
+            .slice(0, 30)
+    });
+
+    // Pagination State
+    let currentPage = $state(1);
+    let itemsPerPage = 12;
+
+    // Modal State
+    let isModalOpen = $state(false);
+    let isEditing = $state(false);
+    let isSaving = $state(false);
+    let editId = $state<string | null>(null);
+    let formData = $state({
+        title: '',
+        imgUrl: '',
+        selectedArtistIds: [] as string[]
     });
 
     onMount(async () => {
-        await Promise.all([fetchMerch(), fetchArtists()]);
+        await Promise.all([fetchAlbums(), fetchArtists()]);
         loading = false;
     });
 
-    async function fetchMerch() {
+    async function fetchAlbums() {
         try {
-            const res = await fetch('http://127.0.0.1:8787/api/merch');
+            const res = await fetch('http://127.0.0.1:8787/api/albums');
             const data = await res.json();
-            if (data.success) merchItems = data.data;
+            if (data.success) {
+                albums = data.data;
+            }
         } catch (e) { console.error(e); }
     }
 
@@ -74,33 +75,30 @@
         try {
             const res = await fetch('http://127.0.0.1:8787/api/metadata');
             const data = await res.json();
-            if (data.success) allArtists = data.artists;
+            if (data.success) artists = data.artists;
         } catch (e) { console.error(e); }
     }
 
     // Filter Logic
-    let allFilteredMerch = $derived(
-        merchItems
-            .filter(item => 
-                item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.artists && item.artists.some((a: any) => a.name.toLowerCase().includes(searchTerm.toLowerCase())))
-            )
+    let allFilteredAlbums = $derived(
+        albums
+            .filter(a => a.title.toLowerCase().includes(searchTerm.toLowerCase()))
             .sort((a, b) => {
                 const s = searchTerm.toLowerCase().trim();
                 if (!s) return 0;
                 
-                const aName = a.name.toLowerCase();
-                const bName = b.name.toLowerCase();
+                const aTitle = a.title.toLowerCase();
+                const bTitle = b.title.toLowerCase();
                 
                 // อันดับ 1: Exact Match
-                const aExact = aName === s;
-                const bExact = bName === s;
+                const aExact = aTitle === s;
+                const bExact = bTitle === s;
                 if (aExact && !bExact) return -1;
                 if (!aExact && bExact) return 1;
                 
                 // อันดับ 2: Starts With
-                const aStarts = aName.startsWith(s);
-                const bStarts = bName.startsWith(s);
+                const aStarts = aTitle.startsWith(s);
+                const bStarts = bTitle.startsWith(s);
                 if (aStarts && !bStarts) return -1;
                 if (!aStarts && bStarts) return 1;
                 
@@ -109,9 +107,9 @@
     );
 
     // Pagination Logic
-    let totalPages = $derived(Math.ceil(allFilteredMerch.length / itemsPerPage) || 1);
-    let paginatedMerch = $derived(
-        allFilteredMerch.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    let totalPages = $derived(Math.ceil(allFilteredAlbums.length / itemsPerPage) || 1);
+    let paginatedAlbums = $derived(
+        allFilteredAlbums.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
     );
 
     // Reset page when searching
@@ -120,31 +118,41 @@
         currentPage = 1;
     });
 
-    function openModal(item: any = null) {
+    async function openModal(album: any = null) {
         artistSearchTerm = '';
-        
-        if (item) {
+        if (album) {
             isEditing = true;
-            editItemId = item.id;
-            formData = {
-                name: item.name,
-                price: item.price.toString(),
-                imgUrl: item.imgUrl || item.img_url || '',
-                selectedArtistIds: item.artists ? item.artists.map((a: any) => a.id) : []
-            };
+            editId = album.id;
+            
+            // Fetch detail to get artists
+            try {
+                const res = await fetch(`http://127.0.0.1:8787/api/albums/${album.id}`);
+                const detail = await res.json();
+                if (detail.success) {
+                    formData.title = detail.album.title;
+                    formData.imgUrl = detail.album.imgUrl || detail.album.img_url || '';
+                    formData.selectedArtistIds = detail.album.artists ? detail.album.artists.map((a: any) => a.id) : [];
+                }
+            } catch (e) {
+                formData.title = album.title;
+                formData.imgUrl = album.imgUrl || '';
+                formData.selectedArtistIds = [];
+            }
         } else {
             isEditing = false;
-            editItemId = null;
-            formData = { name: '', price: '', imgUrl: '', selectedArtistIds: [] };
+            editId = null;
+            formData.title = '';
+            formData.imgUrl = '';
+            formData.selectedArtistIds = [];
         }
         isModalOpen = true;
     }
 
-    function toggleArtistSelection(artistId: string) {
-        if (formData.selectedArtistIds.includes(artistId)) {
-            formData.selectedArtistIds = formData.selectedArtistIds.filter(id => id !== artistId);
+    function toggleArtist(id: string) {
+        if (formData.selectedArtistIds.includes(id)) {
+            formData.selectedArtistIds = formData.selectedArtistIds.filter(aid => aid !== id);
         } else {
-            formData.selectedArtistIds = [...formData.selectedArtistIds, artistId];
+            formData.selectedArtistIds = [...formData.selectedArtistIds, id];
         }
     }
 
@@ -154,14 +162,16 @@
         const adminId = adminAuthState.currentAdmin?.id;
 
         const payload = {
-            name: formData.name,
-            price: parseFloat(formData.price),
+            title: formData.title,
             imgUrl: formData.imgUrl,
             artistIds: formData.selectedArtistIds,
             adminId
         };
 
-        const url = isEditing ? `http://127.0.0.1:8787/api/admin/merch/${editItemId}` : 'http://127.0.0.1:8787/api/admin/merch';
+        const url = isEditing 
+            ? `http://127.0.0.1:8787/api/admin/albums/${editId}` 
+            : 'http://127.0.0.1:8787/api/albums';
+        
         const method = isEditing ? 'PUT' : 'POST';
 
         try {
@@ -172,7 +182,7 @@
             });
             const data = await res.json();
             if (data.success) {
-                await fetchMerch();
+                await fetchAlbums();
                 isModalOpen = false;
             } else {
                 alert(data.error);
@@ -181,23 +191,23 @@
         isSaving = false;
     }
 
-    async function handleDelete(itemId: string) {
-        if (!confirm("Are you sure you want to delete this item?")) return;
-
+    async function handleDelete(id: string, title: string) {
+        if (!confirm(`Are you sure you want to delete album "${title}"?`)) return;
         const adminId = adminAuthState.currentAdmin?.id;
+
         try {
-            const res = await fetch(`http://127.0.0.1:8787/api/admin/merch/${itemId}`, {
+            const res = await fetch(`http://127.0.0.1:8787/api/admin/albums/${id}`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ adminId })
             });
             const data = await res.json();
             if (data.success) {
-                merchItems = merchItems.filter(item => item.id !== itemId);
+                albums = albums.filter(a => a.id !== id);
             } else {
-                alert("❌ " + data.error); 
+                alert(data.error);
             }
-        } catch (err) { alert("Connection error occurred"); }
+        } catch (err) { alert("An error occurred"); }
     }
 </script>
 
@@ -207,29 +217,29 @@
             <span>&lsaquo;</span> Back to Dashboard
         </a>
     </nav>
-    
+
     <header class="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-            <h1 class="text-4xl font-black tracking-tight mb-2">🛍️ Store Management</h1>
-            <p class="text-text-muted font-medium">Create, edit, or remove artist merchandise</p>
+            <h1 class="text-4xl font-black tracking-tight mb-2">💿 Album Management</h1>
+            <p class="text-text-muted font-medium">Create and organize music collections</p>
         </div>
         <button 
             class="bg-primary hover:bg-primary-hover text-black px-8 py-3 rounded-full font-black text-lg shadow-xl hover:scale-105 active:scale-95 transition-all" 
             onclick={() => openModal()}
         >
-            + Add New Item
+            + Add New Album
         </button>
     </header>
 
-    <!-- Admin Navigation Modules -->
+    <!-- Quick Navigation -->
     <section class="bg-bg-elevated p-6 rounded-2xl border border-white/5 shadow-2xl">
         <p class="text-xs uppercase tracking-widest text-text-muted font-bold mb-4">Quick Navigation</p>
         <div class="flex flex-wrap gap-3">
             <a href="/admin/tracks" class="nav-module-btn border-l-teal-500 hover:border-teal-500">🎵 Tracks</a>
             <a href="/admin/artists" class="nav-module-btn border-l-emerald-500 hover:border-emerald-500">🎤 Artists</a>
-            <a href="/admin/albums" class="nav-module-btn border-l-sky-500 hover:border-sky-500">💿 Albums</a>
+            <a href="/admin/albums" class="nav-module-btn border-l-sky-500 bg-white/5 border-sky-500">💿 Albums</a>
             <a href="/admin/users" class="nav-module-btn border-l-indigo-500 hover:border-indigo-500">👤 Users</a>
-            <a href="/admin/merch" class="nav-module-btn border-l-primary bg-white/5 border-primary">🛍️ Store</a>
+            <a href="/admin/merch" class="nav-module-btn border-l-primary hover:border-primary">🛍️ Store</a>
             <a href="/admin/orders" class="nav-module-btn border-l-amber-500 hover:border-amber-500">📦 Orders</a>
             <a href="/admin/ranking" class="nav-module-btn border-l-pink-500 hover:border-pink-500">🏆 Ranking</a>
             <a href="/admin/logs" class="nav-module-btn border-l-gray-500 hover:border-gray-500">🛡️ Logs</a>
@@ -241,74 +251,49 @@
         <input 
             type="text" 
             bind:value={searchTerm} 
-            placeholder="Search products or artists..." 
+            placeholder="Search albums by title..." 
             class="w-full bg-bg-elevated border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-sm focus:ring-2 focus:ring-primary outline-none transition-all shadow-xl"
         />
     </div>
 
     {#if loading}
         <div class="flex justify-center items-center h-64">
-            <p class="text-text-muted animate-pulse font-bold text-xl">Loading products...</p>
+            <p class="text-text-muted animate-pulse font-bold text-xl">Loading albums...</p>
         </div>
     {:else}
-        <div class="bg-bg-elevated rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
-            <table class="w-full border-collapse text-left">
-                <thead>
-                    <tr class="bg-bg-highlight/50 text-xs font-bold text-text-muted uppercase tracking-widest border-b border-white/5">
-                        <th class="p-6 w-24">Image</th>
-                        <th class="p-6">Product Name</th>
-                        <th class="p-6">Artists</th>
-                        <th class="p-6">Price</th>
-                        <th class="p-6 text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-white/5">
-                    {#each paginatedMerch as item}
-                        <tr class="hover:bg-white/5 transition-colors">
-                            <td class="p-6">
-                                <div class="w-16 h-16 bg-bg-highlight rounded-lg overflow-hidden flex items-center justify-center border border-white/5">
-                                    {#if item.imgUrl || item.img_url}
-                                        <img src={item.imgUrl || item.img_url} alt="Item" class="w-full h-full object-cover" />
-                                    {:else}
-                                        <span class="text-2xl opacity-30">📷</span>
-                                    {/if}
-                                </div>
-                            </td>
-                            <td class="p-6">
-                                <span class="font-bold text-white text-lg">{item.name}</span>
-                            </td>
-                            <td class="p-6">
-                                <span class="text-sm text-text-muted">
-                                    {item.artists?.map((a:any) => a.name).join(', ') || '-'}
-                                </span>
-                            </td>
-                            <td class="p-6 font-black text-primary text-lg">
-                                ฿{Number(item.price).toLocaleString()}
-                            </td>
-                            <td class="p-6 text-right">
-                                <div class="flex justify-end gap-3">
-                                    <button 
-                                        class="w-10 h-10 rounded-full bg-bg-highlight hover:bg-indigo-500 hover:text-white flex items-center justify-center transition-all border border-white/5" 
-                                        onclick={() => openModal(item)}
-                                    >
-                                        ✏️
-                                    </button>
-                                    <button 
-                                        class="w-10 h-10 rounded-full bg-bg-highlight hover:bg-red-500 hover:text-white flex items-center justify-center transition-all border border-white/5" 
-                                        onclick={() => handleDelete(item.id)}
-                                    >
-                                        🗑️
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                    {:else}
-                        <tr>
-                            <td colspan="5" class="p-20 text-center text-text-muted italic">No merch found matching your search.</td>
-                        </tr>
-                    {/each}
-                </tbody>
-            </table>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {#each paginatedAlbums as album}
+                <div class="bg-bg-elevated rounded-2xl border border-white/5 shadow-2xl overflow-hidden hover:bg-bg-highlight transition-all group flex flex-col">
+                    <div class="aspect-square bg-bg-highlight relative overflow-hidden">
+                        {#if album.imgUrl || album.img_url}
+                            <img src={album.imgUrl || album.img_url} alt={album.title} class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                        {:else}
+                            <div class="w-full h-full flex items-center justify-center text-4xl opacity-20">💿</div>
+                        {/if}
+                    </div>
+                    <div class="p-6 flex flex-col flex-1">
+                        <h3 class="text-lg font-bold text-white truncate mb-1">{album.title}</h3>
+                        <p class="text-[10px] text-text-muted font-black uppercase tracking-widest mt-auto pt-4">Album ID: {album.id.slice(0, 8)}...</p>
+                        
+                        <div class="flex gap-2 mt-4">
+                            <button 
+                                class="flex-1 bg-bg-highlight hover:bg-indigo-500 text-white py-2 rounded-lg text-xs font-black transition-all border border-white/5"
+                                onclick={() => openModal(album)}
+                            >
+                                EDIT
+                            </button>
+                            <button 
+                                class="flex-1 bg-bg-highlight hover:bg-red-500 text-white py-2 rounded-lg text-xs font-black transition-all border border-white/5"
+                                onclick={() => handleDelete(album.id, album.title)}
+                            >
+                                DELETE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            {:else}
+                <div class="col-span-full py-20 text-center text-text-muted italic">No albums found.</div>
+            {/each}
         </div>
 
         <!-- Pagination Controls -->
@@ -322,7 +307,7 @@
                     &lsaquo; Previous
                 </button>
                 <div class="flex flex-col items-center gap-1">
-                    <span class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted">Inventory Navigation</span>
+                    <span class="text-[10px] font-black uppercase tracking-[0.2em] text-text-muted">Navigation</span>
                     <span class="text-sm font-black text-white">Page {currentPage} of {totalPages}</span>
                 </div>
                 <button 
@@ -338,33 +323,26 @@
 </div>
 
 {#if isModalOpen}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[1000] p-4" onclick={() => isModalOpen = false}>
         <div class="bg-bg-elevated w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden border border-white/10 animate-in zoom-in duration-200" onclick={(e) => e.stopPropagation()}>
             <div class="flex justify-between items-center p-8 border-b border-white/5">
-                <h2 class="text-2xl font-black">{isEditing ? 'Edit Product' : 'Add New Product'}</h2>
+                <h2 class="text-2xl font-black">{isEditing ? 'Edit Album' : 'Add New Album'}</h2>
                 <button class="text-text-muted hover:text-white text-2xl" onclick={() => isModalOpen = false}>✕</button>
             </div>
             
             <form onsubmit={handleSave} class="p-8 flex flex-col gap-6">
                 <div class="flex flex-col gap-2">
-                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Product Name *</label>
-                    <input type="text" font-bold placeholder="e.g. Artist Autographed T-Shirt" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" bind:value={formData.name} required />
-                </div>
-                
-                <div class="flex flex-col gap-2">
-                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Price (THB) *</label>
-                    <input type="number" step="0.01" min="0" bind:value={formData.price} required placeholder="0.00" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Album Title *</label>
+                    <input type="text" bind:value={formData.title} required placeholder="e.g. Future Nostalgia" class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
 
                 <div class="flex flex-col gap-2">
-                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Image URL</label>
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Cover Image URL</label>
                     <input type="url" bind:value={formData.imgUrl} placeholder="https://..." class="bg-bg-highlight border-none rounded-xl py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
 
                 <div class="flex flex-col gap-2">
-                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Link to Artists</label>
+                    <label class="text-xs font-bold uppercase tracking-wider text-text-muted ml-1">Associated Artists</label>
                     
                     <input 
                         type="text" 
@@ -373,13 +351,13 @@
                         class="bg-bg-elevated border border-white/10 rounded-lg py-2 px-3 text-sm focus:ring-1 focus:ring-primary outline-none transition-all"
                     />
 
-                    <div class="max-h-40 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
+                    <div class="h-48 overflow-y-auto bg-bg-highlight/50 rounded-xl border border-white/5 p-4 flex flex-col gap-2">
                         {#each filteredArtists as artist}
                             <label class="flex items-center gap-3 cursor-pointer hover:text-primary transition-colors py-1 group">
                                 <input 
                                     type="checkbox" 
                                     checked={formData.selectedArtistIds.includes(artist.id)}
-                                    onchange={() => toggleArtistSelection(artist.id)}
+                                    onchange={() => toggleArtist(artist.id)}
                                     class="rounded border-gray-600 bg-bg-elevated text-primary focus:ring-primary"
                                 />
                                 <span class="text-sm font-medium">{artist.name}</span>
@@ -395,7 +373,7 @@
                 <div class="flex justify-end gap-4 mt-4">
                     <button type="button" class="px-8 py-3 rounded-full font-black text-sm bg-bg-highlight text-white hover:bg-bg-surface transition-all" onclick={() => isModalOpen = false}>Cancel</button>
                     <button type="submit" class="px-10 py-3 rounded-full font-black text-sm bg-primary text-black hover:scale-105 active:scale-95 transition-all disabled:opacity-50" disabled={isSaving}>
-                        {isSaving ? 'Saving...' : 'Save Product'}
+                        {isSaving ? 'Saving...' : 'Save Album'}
                     </button>
                 </div>
             </form>
@@ -412,9 +390,5 @@
     
     .nav-module-btn:hover {
         @apply bg-white/10 -translate-y-1 shadow-xl;
-    }
-    
-    .nav-module-btn:active {
-        @apply translate-y-0;
     }
 </style>
