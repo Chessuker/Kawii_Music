@@ -41,23 +41,26 @@
 
 <style>
     .admin-global-topbar {
-        background: #111;
+        background: #000;
         color: #fff;
         padding: 8px 20px;
         display: flex;
         justify-content: space-between;
         align-items: center;
         font-family: sans-serif;
-        font-size: 0.9em;
-        border-bottom: 2px solid #dc2626;
+        font-size: 0.85em;
+        border-bottom: 2px solid #a855f7; /* Primary Purple */
         position: sticky;
         top: 0;
         z-index: 99999;
     }
+    .admin-global-topbar strong {
+        color: #a855f7;
+    }
     .admin-global-topbar button {
         background: transparent;
-        border: 1px solid #666;
-        color: #ccc;
+        border: 1px solid #444;
+        color: #aaa;
         padding: 4px 12px;
         border-radius: 4px;
         cursor: pointer;
@@ -65,8 +68,8 @@
         transition: all 0.2s;
     }
     .admin-global-topbar button:hover {
-        background: #dc2626;
-        color: white;
-        border-color: #dc2626;
+        background: #a855f7;
+        color: black;
+        border-color: #a855f7;
     }
 </style>

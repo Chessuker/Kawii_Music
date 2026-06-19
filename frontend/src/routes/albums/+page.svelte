@@ -8,7 +8,6 @@
     let hasMore = $state(true);
     let searchQuery = $state(''); 
 
-    // 👇 1. เพิ่มตัวแปรจับเวลา (Timer) สำหรับระบบ Live Search
     let searchTimeout: ReturnType<typeof setTimeout>;
 
     onMount(() => {
@@ -45,17 +44,15 @@
         isLoadingMore = false;
     }
 
-    // 👇 2. ฟังก์ชันทำงานระหว่างพิมพ์ (หน่วงเวลา 0.5 วิ ก่อนยิงค้นหา)
     function handleLiveSearch() {
-        clearTimeout(searchTimeout); // ยกเลิกอันเก่าถ้ายังพิมพ์ไม่เสร็จ
-        isLoading = true; // โชว์สถานะโหลดให้ User รู้ว่าแอปกำลังตอบสนอง
+        clearTimeout(searchTimeout);
+        isLoading = true;
         
         searchTimeout = setTimeout(() => {
             loadAlbums(1);
-        }, 500); // 500ms คือระยะเวลาที่กำลังดี ไม่ช้าไม่เร็วไป
+        }, 500);
     }
 
-    // ฟังก์ชันกรณีกดปุ่ม Enter หรือคลิกปุ่มค้นหาตรงๆ
     function handleSearch(e: Event) {
         e.preventDefault();
         clearTimeout(searchTimeout); 
@@ -63,71 +60,61 @@
     }
 </script>
 
-<main style="max-width: 1200px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    
-<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; margin-bottom: 40px;">
-        <h1 style="color: #333; margin: 0; font-size: 2.5em;">💿 คลังอัลบั้มทั้งหมด</h1>
+<div class="flex flex-col gap-10">
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+            <h1 class="text-5xl font-black tracking-tight mb-2">Albums</h1>
+            <p class="text-text-muted font-medium">Browse through our curated collections</p>
+        </div>
         
-        <form onsubmit={handleSearch} style="display: flex; gap: 10px; width: 100%; max-width: 450px;">
+        <form onsubmit={handleSearch} class="w-full max-w-md relative group">
+            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors group-focus-within:text-primary">🔍</span>
             <input 
                 type="text" 
                 bind:value={searchQuery} 
-                oninput={handleLiveSearch} placeholder="🔍 ค้นหาชื่ออัลบั้ม หรือ ชื่อศิลปิน..." 
-                style="flex: 1; padding: 12px 20px; border: 1px solid #ccc; border-radius: 50px; outline: none; font-size: 1em; transition: border 0.2s;" 
-                onfocus={(e) => e.currentTarget.style.borderColor = '#1db954'}
-                onblur={(e) => e.currentTarget.style.borderColor = '#ccc'}
+                oninput={handleLiveSearch} 
+                placeholder="Search albums or artists..." 
+                class="w-full bg-bg-elevated border-none rounded-full py-3.5 pl-12 pr-6 text-sm focus:ring-2 focus:ring-primary outline-none transition-all shadow-xl"
             />
-            <button 
-                type="submit" 
-                style="padding: 12px 30px; background: #1db954; color: white; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(29, 185, 84, 0.3); transition: transform 0.1s;"
-                onmousedown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} 
-                onmouseup={(e) => e.currentTarget.style.transform = 'scale(1)'}
-            >
-                ค้นหา
-            </button>
         </form>
     </div>
 
     {#if isLoading}
-        <div style="text-align: center; padding: 50px; color: #888;">
-            <p style="font-size: 1.2em;">⏳ กำลังค้นหาข้อมูล...</p>
+        <div class="flex justify-center items-center h-64">
+            <p class="text-text-muted animate-pulse font-bold text-xl">Searching library...</p>
         </div>
     {:else if groupedData.length === 0}
-        <div style="text-align: center; padding: 50px; color: #888; background: #fff; border-radius: 12px; border: 1px dashed #ccc;">
-            <span style="font-size: 4em;">👻</span>
-            <p style="font-size: 1.2em; margin-top: 15px;">ไม่พบอัลบั้ม <b>"{searchQuery}"</b></p>
-            <div style="margin-top: 20px; display: inline-block; text-align: left; background: #f9f9f9; padding: 15px 25px; border-radius: 8px; border-left: 4px solid #1db954;">
-                <p style="margin: 0 0 10px 0; font-weight: bold; color: #333;">💡 คำแนะนำในการค้นหา:</p>
-                <ul style="margin: 0; padding-left: 20px; font-size: 0.9em; color: #555;">
-                    <li>ลองพิมพ์ชื่อให้สั้นลง เช่น พิมพ์แค่ <b>"Momentary"</b> แทนชื่อเต็ม</li>
-                    <li>ตรวจสอบตัวสะกดอีกครั้ง</li>
-                    <li>ค้นหาจากชื่อศิลปินแทน (เช่น <b>"Pink Floyd"</b>)</li>
-                </ul>
+        <div class="flex flex-col items-center justify-center py-20 text-center gap-6 bg-bg-elevated/30 rounded-3xl border-2 border-dashed border-white/10">
+            <span class="text-7xl opacity-50">👻</span>
+            <div>
+                <h3 class="text-2xl font-bold mb-2">No albums found for "{searchQuery}"</h3>
+                <p class="text-text-muted">Try searching for a different keyword or artist.</p>
             </div>
         </div>
     {:else}
         {#each groupedData as artistGroup}
-            <section style="margin-bottom: 50px;">
-                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
-                    <span style="font-size: 1.8em; background: #1db954; color: white; width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border-radius: 50%; box-shadow: 0 4px 10px rgba(29, 185, 84, 0.3);">🎤</span>
-                    <h2 style="margin: 0; font-size: 1.8em; color: #222;">{artistGroup.name}</h2>
+            <section class="mb-10">
+                <div class="flex items-center gap-4 mb-6 border-b border-white/5 pb-4">
+                    <div class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-black text-xl font-black shadow-lg">🎤</div>
+                    <h2 class="text-2xl font-black tracking-tight">{artistGroup.name}</h2>
                 </div>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px;">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
                     {#each artistGroup.albums as album}
-                        <a href="/albums/{album.id}" style="text-decoration: none; color: inherit; display: block; transition: transform 0.2s;" onmouseover={(e) => e.currentTarget.style.transform = 'translateY(-8px)'} onmouseout={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
-                            <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border: 1px solid #f0f0f0;">
-                                <div style="aspect-ratio: 1/1; background: #eee; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                                    {#if album.imgUrl}
-                                        <img src={album.imgUrl} alt={album.title} style="width: 100%; height: 100%; object-fit: cover;" />
-                                    {:else}
-                                        <span style="font-size: 4em;">💿</span>
-                                    {/if}
-                                </div>
-                                <div style="padding: 12px;">
-                                    <h3 style="margin: 0; font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #333;">{album.title}</h3>
-                                    <p style="margin: 4px 0 0 0; font-size: 0.8em; color: #888;">Album</p>
-                                </div>
+                        <a href="/albums/{album.id}" class="group bg-bg-elevated/40 hover:bg-bg-highlight p-4 rounded-xl transition-all duration-300 shadow-xl border border-white/5 relative">
+                            <div class="aspect-square bg-bg-highlight rounded-lg overflow-hidden mb-4 shadow-2xl relative">
+                                {#if album.imgUrl}
+                                    <img src={album.imgUrl} alt={album.title} class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                {:else}
+                                    <div class="w-full h-full flex items-center justify-center text-6xl">💿</div>
+                                {/if}
+                                <button class="absolute bottom-2 right-2 w-10 h-10 bg-primary rounded-full shadow-2xl flex items-center justify-center text-black opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-105 active:scale-95 z-10">
+                                    <span class="text-xl ml-0.5">▶</span>
+                                </button>
+                            </div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm truncate mb-1 text-white group-hover:text-primary transition-colors">{album.title}</h3>
+                                <p class="text-text-muted text-[10px] font-black tracking-widest uppercase">Album</p>
                             </div>
                         </a>
                     {/each}
@@ -136,17 +123,15 @@
         {/each}
 
         {#if hasMore}
-            <div style="text-align: center; margin-top: 40px; margin-bottom: 60px;">
+            <div class="flex justify-center mt-12 mb-10">
                 <button 
                     onclick={() => loadAlbums(currentPage + 1)} 
                     disabled={isLoadingMore}
-                    style="padding: 12px 30px; background: #333; color: white; border: none; border-radius: 50px; font-weight: bold; font-size: 1.1em; cursor: pointer; transition: background 0.2s;"
-                    onmouseover={(e) => e.currentTarget.style.background = '#555'} 
-                    onmouseout={(e) => e.currentTarget.style.background = '#333'}
+                    class="bg-white text-black px-10 py-3 rounded-full font-black hover:scale-105 active:scale-95 transition-all shadow-xl disabled:opacity-50"
                 >
-                    {isLoadingMore ? '⏳ กำลังโหลด...' : '👇 โหลดเพิ่มเติม'}
+                    {isLoadingMore ? 'Loading...' : 'Show More'}
                 </button>
             </div>
         {/if}
     {/if}
-</main>
+</div>

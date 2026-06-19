@@ -1,668 +1,528 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { adminAuthState } from '$lib/adminAuth.svelte';
-
-    // ==============================================
-    // 1. STATES
-    // ==============================================
-    // Metadata States
-    let availableArtists: any[] = $state([]);
-    let availableGenres: any[] = $state([]);
-    let availableAlbums: any[] = $state([]);
-    let allTracks: any[] = $state([]);
-
-    // Pagination & Filter States
-    let currentPage = $state(1);
-    let totalPages = $state(1);
-    let totalTracks = $state(0);
-    let searchQuery = $state('');
-    let filterArtist = $state('');
-    let filterGenre = $state('');
-    let filterAlbum = $state('');
     
-    // Batch Upload States
-    let files: FileList | null = $state(null);
-    let uploadQueue: any[] = $state([]);
-    let selectedArtists: string[] = $state([]);
-    let selectedGenres: string[] = $state([]);
-    let selectedAlbum: string = $state('');
-    let isUploadingBatch = $state(false);
+    // --- 📦 Visualization Tools ---
+    import { Bar, Pie, Doughnut } from 'svelte-chartjs';
+    import { Chart, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement, PointElement, LineElement } from 'chart.js';
+    import { toPng } from 'html-to-image';
+    import { jsPDF } from 'jspdf';
+
+    Chart.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ArcElement, PointElement, LineElement);
+
+    // --- 📊 Core App State ---
+    let users = $state<any[]>([]);
+    let logs = $state<any[]>([]);
+    let rankings = $state<any[]>([]);
+    let totalTracksCount = $state(0); 
+    let isLoading = $state(true);
+    let isExporting = $state(false);
+
+    // --- 📈 Report Engine State ---
+    let selectedMonth = $state('');
+    let selectedYear = $state(new Date().getFullYear().toString());
     
-    // Quick Add States
-    let newAlbumTitle = $state('');
-    let newArtistName = $state('');
-    let newGenreName = $state('');
+    // 6 รายงานหลัก
+    let topStreamedArtists = $state<any[]>([]);
+    let genrePop = $state<any[]>([]);
+    let merchRevenue = $state<any[]>([]);
+    let followerEng = $state<any[]>([]);
+    let activeUsersReport = $state<any[]>([]);
+    let highValuePurchases = $state<any>({ systemAverage: 0, orders: [] });
 
-    // Edit States
-    let isEditMode = $state(false);
-    let editingTrackId: string | null = $state(null);
-    let editTitle = $state('');
-    let isSavingEdit = $state(false);
+    // --- 🔄 Fetch Engine ---
+    async function fetchAllData() {
+        const params = new URLSearchParams();
+        if (selectedYear) params.append('year', selectedYear);
+        if (selectedMonth) params.append('month', selectedMonth);
+        const query = params.toString() ? `?${params.toString()}` : '';
 
-    onMount(() => {
-        loadMetadata();
-        loadTracks();
+        try {
+            // ดึงข้อมูล Report ทั้ง 6 เส้น + ข้อมูลดิบพื้นฐาน
+            const results = await Promise.allSettled([
+                fetch(`http://127.0.0.1:8787/api/users`), // ข้อมูล User ทั้งหมด (ไม่กรองเวลา)
+                fetch(`http://127.0.0.1:8787/api/admin/artists/ranking`), // อันดับยอดติดตาม (ไม่กรองเวลา)
+                fetch(`http://127.0.0.1:8787/api/admin/reports/top-artists${query}`),
+                fetch(`http://127.0.0.1:8787/api/admin/reports/genre-popularity${query}`),
+                fetch(`http://127.0.0.1:8787/api/admin/reports/merch-revenue${query}`),
+                fetch(`http://127.0.0.1:8787/api/admin/reports/follower-engagement${query}`),
+                fetch(`http://127.0.0.1:8787/api/admin/reports/active-users${query}`),
+                fetch(`http://127.0.0.1:8787/api/admin/reports/high-value-purchases${query}`),
+                fetch(`http://127.0.0.1:8787/api/logs`)
+            ]);
+
+            // Mapping ข้อมูลเข้า State
+            if (results[0].status === 'fulfilled') {
+                const d = await results[0].value.json();
+                if (d.success) users = d.data;
+            }
+            if (results[1].status === 'fulfilled') {
+                const d = await results[1].value.json();
+                if (d.success) rankings = d.data;
+            }
+            if (results[2].status === 'fulfilled') {
+                const d = await results[2].value.json();
+                if (d.success) topStreamedArtists = d.data;
+            }
+            if (results[3].status === 'fulfilled') {
+                const d = await results[3].value.json();
+                if (d.success) genrePop = d.data;
+            }
+            if (results[4].status === 'fulfilled') {
+                const d = await results[4].value.json();
+                if (d.success) merchRevenue = d.data;
+            }
+            if (results[5].status === 'fulfilled') {
+                const d = await results[5].value.json();
+                if (d.success) followerEng = d.data;
+            }
+            if (results[6].status === 'fulfilled') {
+                const d = await results[6].value.json();
+                if (d.success) activeUsersReport = d.data;
+            }
+            if (results[7].status === 'fulfilled') {
+                const d = await results[7].value.json();
+                if (d.success) highValuePurchases = d.data;
+            }
+            if (results[8].status === 'fulfilled') {
+                const d = await results[8].value.json();
+                if (d.success) logs = d.data;
+            }
+
+        } catch (e) { console.error("Report System Error:", e); }
+        finally { isLoading = false; }
+    }
+
+    $effect(() => { fetchAllData(); });
+
+    // --- 🎨 Chart Data Derivations ---
+    let topArtistsChart = $derived({
+        labels: topStreamedArtists.map(a => a.name),
+        datasets: [{ label: 'Streams', data: topStreamedArtists.map(a => a.totalStreams), backgroundColor: '#a855f7', borderRadius: 4 }]
     });
 
-    // IA Sync States
-    let iaIdentifier = $state('');
-    let isSyncingIA = $state(false);
+    let genreChart = $derived({
+        labels: genrePop.map(g => g.name),
+        datasets: [{ data: genrePop.map(g => g.totalStreams), backgroundColor: ['#a855f7', '#6366f1', '#ec4899', '#f59e0b', '#10b981'], borderWidth: 0 }]
+    });
 
-    async function syncFromIA() {
-        if (!iaIdentifier) {
-            alert('กรุณากรอก Identifier เช่น redtopia-flac-01');
-            return;
-        }
-        isSyncingIA = true;
+    let merchRevenueChart = $derived({
+        labels: merchRevenue.map(m => m.name),
+        datasets: [{ label: 'Revenue (฿)', data: merchRevenue.map(m => m.totalRevenue), backgroundColor: '#10b981', borderRadius: 4 }]
+    });
+
+    let engagementChart = $derived({
+        labels: ['Followers', 'Others'],
+        datasets: [{
+            data: [
+                followerEng.reduce((acc, curr) => acc + curr.followerStreams, 0),
+                followerEng.reduce((acc, curr) => acc + (curr.totalStreams - curr.followerStreams), 0)
+            ],
+            backgroundColor: ['#a855f7', '#333'],
+            borderWidth: 0
+        }]
+    });
+
+    // --- PDF Export Logic ---
+    async function exportToPDF() {
+        isExporting = true;
         try {
-            const res = await fetch('http://127.0.0.1:8787/api/sync-ia', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    identifier: iaIdentifier,
-                    albumId: selectedAlbum, // ใช้ Album ที่เลือกไว้ฝั่งซ้ายได้เลย
-                    artistIds: selectedArtists, // ใช้ Artist ที่เลือกไว้ได้เลย
-                    genreIds: selectedGenres  // ใช้ Genre ที่เลือกไว้ได้เลย
-                })
-            });
-            const result = await res.json();
-            if (result.success) {
-                alert(`✅ ${result.message}`);
-                loadTracks(); // โหลดตารางเพลงใหม่
-                iaIdentifier = ''; // เคลียร์ช่อง
-            } else {
-                alert('❌ เกิดข้อผิดพลาด: ' + result.error);
+            const pdf    = new jsPDF('p', 'mm', 'a4');
+            const PAGE_W = pdf.internal.pageSize.getWidth();   // 210mm
+            const PAGE_H = pdf.internal.pageSize.getHeight();  // 297mm
+            const M      = 8;  // margin (mm)
+            const GAP    = 5;  // gap ระหว่าง block (mm)
+            const COL_W  = (PAGE_W - M * 2 - GAP) / 2; // ความกว้าง column สำหรับ 2-col layout
+
+            let y        = M;
+            let pageNum  = 0;
+
+            // --- Helpers ---
+            const newPage = () => {
+                if (pageNum > 0) pdf.addPage();
+                pageNum++;
+                y = M;
+            };
+
+            // Capture element เป็น PNG + คืน dataUrl กับ height (มม.)
+            const snap = async (el: HTMLElement, w: number): Promise<{ url: string; h: number }> => {
+                el.classList.add('print-mode');
+                await new Promise(r => setTimeout(r, 80)); // รอ CSS apply
+                const url = await toPng(el, { quality: 1, pixelRatio: 2, backgroundColor: '#ffffff' });
+                el.classList.remove('print-mode');
+                const h = (el.scrollHeight * w) / el.scrollWidth;
+                return { url, h };
+            };
+
+            // วาง image ลง PDF ตำแหน่งที่กำหนด
+            const place = (url: string, x: number, w: number, h: number) => {
+                pdf.addImage(url, 'PNG', x, y, w, h);
+            };
+
+            newPage(); // หน้าแรก
+
+            // ─── Block 1: KPI Grid (full width) ───────────────────────────────────
+            const kpiGrid = document.querySelector('.kpi-grid') as HTMLElement | null;
+            if (kpiGrid) {
+                const { url, h } = await snap(kpiGrid, PAGE_W - M * 2);
+                if (y + h > PAGE_H - M) newPage();
+                place(url, M, PAGE_W - M * 2, h);
+                y += h + GAP;
             }
-        } catch (error) {
-            alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
-        }
-        isSyncingIA = false;
-    }
 
-    // 👇 1. เพิ่ม State สำหรับกล่องค้นหา Checkbox
-    let searchArtistText = $state('');
-    let searchGenreText = $state('');
+            // ─── Block 2: Charts (2 columns ต่อแถว) ──────────────────────────────
+            const charts = Array.from(document.querySelectorAll('.chart-box')) as HTMLElement[];
+            for (let i = 0; i < charts.length; i += 2) {
+                const pair = charts.slice(i, i + 2);
 
-    // 👇 2. ใช้ $derived เพื่อกรองข้อมูลแบบ Real-time ทันทีที่พิมพ์
-    let filteredEditArtists = $derived(
-        availableArtists.filter(a => a.name.toLowerCase().includes(searchArtistText.toLowerCase()))
-    );
-    let filteredEditGenres = $derived(
-        availableGenres.filter(g => g.name.toLowerCase().includes(searchGenreText.toLowerCase()))
-    );
+                // Snap ทั้งคู่ก่อน (ยังไม่วาด)
+                const snaps = await Promise.all(pair.map(el => snap(el, COL_W)));
+                const rowH  = Math.max(...snaps.map(s => s.h));
 
-    // ==============================================
-    // 2. DATA FETCHING
-    // ==============================================
-    async function loadMetadata() {
-        const [metaRes, albumRes] = await Promise.all([
-            fetch('http://127.0.0.1:8787/api/metadata'),
-            fetch('http://127.0.0.1:8787/api/albums')
-        ]);
-        const metaData = await metaRes.json();
-        const albumData = await albumRes.json();
-        
-        if (metaData.success) {
-            availableArtists = metaData.artists;
-            availableGenres = metaData.genres;
-        }
-        if (albumData.success) availableAlbums = albumData.data;
-    }
+                // ถ้าแถวนี้ไม่จุในหน้าที่เหลือ → ขึ้นหน้าใหม่
+                if (y + rowH > PAGE_H - M) newPage();
 
-    async function loadTracks(page = 1) {
-        currentPage = page;
-        const queryParams = new URLSearchParams({
-            page: currentPage.toString(),
-            limit: '20',
-            search: searchQuery,
-            artist: filterArtist,
-            genre: filterGenre,
-            album: filterAlbum
-        });
-
-        const res = await fetch(`http://127.0.0.1:8787/api/tracks?${queryParams.toString()}`);
-        const data = await res.json();
-        if (data.success) {
-            allTracks = data.data;
-            totalPages = data.pagination.totalPages;
-            totalTracks = data.pagination.totalTracks;
-        }
-    }
-
-    // ฟังก์ชันสำหรับกดปุ่มค้นหา
-    function applyFilter(e: Event) {
-        e.preventDefault();
-        loadTracks(1); // ค้นหาใหม่ให้กลับไปหน้า 1
-    }
-
-    // ==============================================
-    // 3. UPLOAD & QUICK ADD LOGIC
-    // ==============================================
-    async function handleFileSelection(e: Event) {
-        if (!files) return;
-        uploadQueue = []; 
-
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            let rawTitle = file.name.replace(/\.[^/.]+$/, ""); 
-            let cleanTitle = rawTitle.replace(/^\d+[\s-._]*/, "");
-            const durationSec = await getAudioDuration(file);
-            
-            uploadQueue.push({
-                file: file,
-                title: cleanTitle,
-                duration: formatDuration(durationSec),
-                status: 'pending' 
-            });
-        }
-    }
-
-    async function startBatchUpload() {
-        isUploadingBatch = true;
-        for (let i = 0; i < uploadQueue.length; i++) {
-            if (uploadQueue[i].status === 'success') continue;
-            uploadQueue[i].status = 'uploading';
-            const track = uploadQueue[i];
-
-            const formData = new FormData();
-            formData.append('title', track.title);
-            formData.append('file', track.file);
-            formData.append('duration', track.duration);
-            formData.append('artistIds', JSON.stringify(selectedArtists));
-            formData.append('genreIds', JSON.stringify(selectedGenres));
-            if (selectedAlbum) formData.append('albumId', selectedAlbum);
-
-            try {
-                const res = await fetch('http://127.0.0.1:8787/api/upload', {
-                    method: 'POST', body: formData
+                snaps.forEach(({ url, h }, j) => {
+                    place(url, M + j * (COL_W + GAP), COL_W, h);
                 });
-                const result = await res.json();
-                uploadQueue[i].status = result.success ? 'success' : 'error';
-            } catch (error) {
-                uploadQueue[i].status = 'error';
+                y += rowH + GAP;
             }
-        }
-        isUploadingBatch = false;
-        files = null; 
-        loadTracks(); 
-        alert('อัปโหลด Batch เสร็จสิ้น!');
-    }
 
-async function createAlbum() {
-        if (!newAlbumTitle) return;
-        const res = await fetch('http://127.0.0.1:8787/api/albums', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            // 👇 แนบ adminId ไปให้ Backend บันทึก Audit Log
-            body: JSON.stringify({ title: newAlbumTitle, adminId: adminAuthState.currentAdmin?.id }) 
-        });
-        const result = await res.json();
-        if (result.success) { newAlbumTitle = ''; loadMetadata(); selectedAlbum = result.data.id; }
-    }
+            // ─── Block 3: Tables (2 columns ต่อแถว) ──────────────────────────────
+            const tables = Array.from(document.querySelectorAll('.activity-box')) as HTMLElement[];
+            for (let i = 0; i < tables.length; i += 2) {
+                const pair  = tables.slice(i, i + 2);
+                const snaps = await Promise.all(pair.map(el => snap(el, COL_W)));
+                const rowH  = Math.max(...snaps.map(s => s.h));
 
-    async function createArtist() {
-        if (!newArtistName) return;
-        const res = await fetch('http://127.0.0.1:8787/api/artists', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            // 👇 แนบ adminId
-            body: JSON.stringify({ name: newArtistName, adminId: adminAuthState.currentAdmin?.id }) 
-        });
-        const result = await res.json();
-        if (result.success) { newArtistName = ''; loadMetadata(); selectedArtists = [...selectedArtists, result.data.id]; }
-    }
+                if (y + rowH > PAGE_H - M) newPage();
 
-    async function createGenre() {
-        if (!newGenreName) return;
-        const res = await fetch('http://127.0.0.1:8787/api/genres', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            // 👇 แนบ adminId
-            body: JSON.stringify({ name: newGenreName, adminId: adminAuthState.currentAdmin?.id }) 
-        });
-        const result = await res.json();
-        if (result.success) { newGenreName = ''; loadMetadata(); selectedGenres = [...selectedGenres, result.data.id]; }
-    }
+                snaps.forEach(({ url, h }, j) => {
+                    place(url, M + j * (COL_W + GAP), COL_W, h);
+                });
+                y += rowH + GAP;
+            }
 
-    // ==============================================
-    // 4. EDIT & DELETE LOGIC
-    // ==============================================
-    function startEdit(track: any) {
-        isEditMode = true;
-        editingTrackId = track.id;
-        editTitle = track.title;
-        // ดึงข้อมูลเดิมมาใส่ Form
-        selectedArtists = track.artists ? track.artists.map((a: any) => a.id) : [];
-        selectedGenres = track.genres ? track.genres.map((g: any) => g.id) : [];
-        selectedAlbum = track.album ? track.album.id : '';
-        window.scrollTo({ top: 0, behavior: 'smooth' }); 
-    }
+            pdf.save(`Kawii_Dashboard_${selectedYear}_${selectedMonth || 'All'}.pdf`);
 
-    function cancelEdit() {
-        isEditMode = false;
-        editingTrackId = null;
-        editTitle = '';
-        selectedArtists = [];
-        selectedGenres = [];
-        selectedAlbum = '';
-    }
-
-    async function saveEdit() {
-        if (!editingTrackId) return;
-        isSavingEdit = true;
-        try {
-            const res = await fetch(`http://127.0.0.1:8787/api/tracks/${editingTrackId}`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: editTitle,
-                    artistIds: selectedArtists,
-                    genreIds: selectedGenres,
-                    albumId: selectedAlbum
-                })
-            });
-            const result = await res.json();
-            if (result.success) {
-                alert('แก้ไขข้อมูลสำเร็จ!');
-                cancelEdit();
-                loadTracks();
-            } else alert('เกิดข้อผิดพลาด: ' + result.error);
-        } catch (error) {
-            alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
-        }
-        isSavingEdit = false;
-    }
-
-    async function handleDelete(trackId: string, trackTitle: string) {
-        if (!confirm(`ลบเพลง "${trackTitle}" ถาวรหรือไม่?`)) return;
-        try {
-            const res = await fetch(`http://127.0.0.1:8787/api/tracks/${trackId}`, { method: 'DELETE' });
-            const result = await res.json();
-            if (result.success) {
-                loadTracks(); 
-                if (editingTrackId === trackId) cancelEdit();
-            } else alert('ลบไม่ได้: ' + result.error);
-        } catch (error) {
-            alert('เซิร์ฟเวอร์ขัดข้อง');
+        } catch (e: any) {
+            console.error('PDF Export Error:', e);
+            alert(`Export ไม่สำเร็จ: ${e.message || String(e)}`);
+        } finally {
+            isExporting = false;
         }
     }
 
-    // ==============================================
-    // 5. UTILS
-    // ==============================================
-    function toggleSelection(array: string[], id: string) {
-        return array.includes(id) ? array.filter(itemId => itemId !== id) : [...array, id];
-    }
-    function getAudioDuration(file: File): Promise<number> {
-        return new Promise((resolve) => {
-            const url = URL.createObjectURL(file);
-            const audio = new Audio(url);
-            audio.onloadedmetadata = () => { URL.revokeObjectURL(url); resolve(audio.duration); };
-        });
-    }
-    function formatDuration(totalSeconds: number): string {
-        const h = Math.floor(totalSeconds / 3600);
-        const m = Math.floor((totalSeconds % 3600) / 60);
-        const s = Math.floor(totalSeconds % 60);
-        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    }
+    const formatCurrency = (val: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(val);
 </script>
 
-<main style="max-width: 1000px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
-        <div>
-            <h1 style="color: #1db954; margin: 0;">🎛 Admin Dashboard</h1>
-            <p style="color: #888; margin: 5px 0 0 0;">ศูนย์กลางการควบคุมและการจัดการเพลง (Track Management)</p>
+<div class="command-center">
+    <header class="dashboard-header">
+        <div class="header-content">
+            <h1 class="title">Admin Dashboard</h1>
+            <p class="subtitle">System Analytics & Operational Dashboard</p>
         </div>
-    </div>
-
-    <section style="background: #1a1a1a; padding: 20px; border-radius: 8px; margin-bottom: 35px; border: 1px solid #333;">
-        <p style="margin: 0 0 15px 0; color: #ccc; font-weight: bold; font-size: 0.95em;">
-            ⚙️ ข้ามไปยังระบบการจัดการอื่นๆ (Admin Modules)
-        </p>
-        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-            <a href="/admin/users" class="nav-module-btn" style="--btn-color: #4f46e5;">👤 จัดการผู้ใช้งาน</a>
-            <a href="/admin/merch" class="nav-module-btn" style="--btn-color: #1db954;">🛍️ จัดการสินค้า</a>
-            <a href="/admin/orders" class="nav-module-btn" style="--btn-color: #f59e0b;">📦 จัดการคำสั่งซื้อ</a>
-            <a href="/admin/ranking" class="nav-module-btn" style="--btn-color: #ec4899;">🏆 อันดับศิลปิน</a>
-            <a href="/admin/logs" class="nav-module-btn" style="--btn-color: #6b7280;">🛡️ Audit Logs</a>
-        </div>
-    </section>
-    {#if !isEditMode}
-        <!-- ================= โหมด UPLOAD ================= -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 40px;">
-            <section style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                <h2 style="margin-top: 0; color: #333;">1. ตั้งค่า Metadata สำหรับ Batch</h2>
-                
-                <!-- อัลบั้ม -->
-                <div style="margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 6px; border: 1px solid #ddd;">
-                    <label style="font-weight: bold;">เลือกอัลบั้ม:</label>
-                    <select bind:value={selectedAlbum} style="width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 10px;">
-                        <option value="">-- ไม่อยู่ในอัลบั้ม --</option>
-                        {#each availableAlbums as album}
-                            <option value={album.id}>{album.title}</option>
-                        {/each}
-                    </select>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" bind:value={newAlbumTitle} placeholder="...หรือสร้างใหม่" style="flex: 1; padding: 8px;" />
-                        <button onclick={createAlbum} style="padding: 8px 15px; background: #333; color: white; border: none; cursor: pointer;">สร้าง</button>
-                    </div>
-                </div>
-
-                <!-- ศิลปิน -->
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎤 ศิลปิน (Artists):</label>
-                    
-                    <input 
-                        type="text" 
-                        bind:value={searchArtistText} 
-                        placeholder="🔍 พิมพ์ค้นหาชื่อศิลปิน..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditArtists as artist}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <input type="checkbox" bind:group={selectedArtists} value={artist.id}> {artist.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบศิลปินที่ค้นหา</p>
-                        {/each}
-                    </div>
-
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <input type="text" bind:value={newArtistName} placeholder="+ เพิ่มศิลปินใหม่..." style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" />
-                        <button type="button" onclick={createArtist} style="padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer;">เพิ่ม</button>
-                    </div>
-                </div>
-
-                <!-- แนวเพลง -->
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎸 แนวเพลง (Genres):</label>
-                    
-                    <input 
-                        type="text" 
-                        bind:value={searchGenreText} 
-                        placeholder="🔍 พิมพ์ค้นหาแนวเพลง..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditGenres as genre}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <input type="checkbox" bind:group={selectedGenres} value={genre.id}> {genre.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบแนวเพลงที่ค้นหา</p>
-                        {/each}
-                    </div>
-
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <input type="text" bind:value={newGenreName} placeholder="+ เพิ่มแนวเพลงใหม่..." style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" />
-                        <button type="button" onclick={createGenre} style="padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer;">เพิ่ม</button>
-                    </div>
-                </div>
-            </section>
-
-            <section style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                <h2 style="margin-top: 0; color: #333;">2. เลือกไฟล์ทั้งหมด</h2>
-                <input 
-                    type="file" accept=".mp3, .wav, .flac" multiple 
-                    bind:files={files} onchange={handleFileSelection}
-                    style="width: 100%; padding: 10px; background: #e8f5e9; border: 2px dashed #1db954; border-radius: 8px; cursor: pointer;"
-                />
-
-                {#if uploadQueue.length > 0}
-                    <div style="margin-top: 20px; max-height: 400px; overflow-y: auto;">
-                        {#each uploadQueue as track}
-                            <div style="display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee;">
-                                <div style="display: flex; flex-direction: column;">
-                                    <input type="text" bind:value={track.title} style="border: none; font-weight: bold; background: transparent; width: 250px;" />
-                                    <span style="font-size: 0.8em; color: #888;">{track.duration}</span>
-                                </div>
-                                <div>
-                                    {#if track.status === 'pending'} ⏳ รอ
-                                    {:else if track.status === 'uploading'} 🔄 อัป..
-                                    {:else if track.status === 'success'} ✅ เสร็จ
-                                    {:else} ❌ พัง
-                                    {/if}
-                                </div>
-                            </div>
-                        {/each}
-                    </div>
-
-                    <button 
-                        onclick={startBatchUpload} disabled={isUploadingBatch}
-                        style="width: 100%; margin-top: 20px; padding: 15px; background: #1db954; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; cursor: pointer;"
-                    >
-                        {isUploadingBatch ? 'กำลังประมวลผล Batch...' : `เริ่มอัปโหลด ${uploadQueue.length} เพลง`}
-                    </button>
-                {/if}
-            </section>
-        </div>
-
-            <!-- เพิ่ม Section ใหม่สำหรับ Internet Archive ต่อท้าย Section เลือกไฟล์ -->
-            <section style="background: #e3f2fd; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); grid-column: span 2; margin-top: -10px;">
-                <h2 style="margin-top: 0; color: #1565c0;">🌐 ดึงข้อมูลอัตโนมัติจาก Internet Archive (Automate Sync)</h2>
-                <p style="font-size: 0.9em; color: #555; margin-bottom: 15px;">
-                    ดึงไฟล์ .mp3 / .flac ทั้งหมดใน Collection รวดเดียว โดยอิง Metadata (อัลบั้ม, ศิลปิน, แนวเพลง) จากกล่องหมายเลข 1 ด้านบน
-                </p>
-                <div style="display: flex; gap: 15px; align-items: center;">
-                    <div style="flex: 1;">
-                        <label style="font-weight: bold; display: block; margin-bottom: 5px;">IA Identifier (เช่น redtopia-flac-01):</label>
-                        <input type="text" bind:value={iaIdentifier} placeholder="redtopia-flac-01" style="width: 100%; padding: 12px; border: 1px solid #90caf9; border-radius: 4px; box-sizing: border-box;" />
-                    </div>
-                    <button 
-                        onclick={syncFromIA} 
-                        disabled={isSyncingIA}
-                        style="padding: 12px 30px; background: #1976d2; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 1.1em; cursor: pointer; margin-top: 25px;"
-                    >
-                        {isSyncingIA ? 'กำลังดึงข้อมูล... ⏳' : 'ดูดเพลงลง Database ⚡'}
-                    </button>
-                </div>
-            </section>
-
-    {:else}
-        <!-- ================= โหมด EDIT ================= -->
-        <section style="background: #fff3e0; padding: 25px; border-radius: 8px; border: 2px solid #ff9800; margin-bottom: 40px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-            <h2 style="margin-top: 0; color: #e65100;">✏️ โหมดแก้ไขเพลง</h2>
-            
-            <div style="display: flex; flex-direction: column; gap: 15px;">
-                <div>
-                    <label style="font-weight: bold;">ชื่อเพลง:</label>
-                    <input type="text" bind:value={editTitle} style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;" />
-                </div>
-
-                <div>
-                    <label style="font-weight: bold;">อัปเดตอัลบั้ม:</label>
-                    <select bind:value={selectedAlbum} style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;">
-                        <option value="">-- ไม่อยู่ในอัลบั้ม --</option>
-                        {#each availableAlbums as album}
-                            <option value={album.id}>{album.title}</option>
-                        {/each}
-                    </select>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎤 ศิลปิน (Artists):</label>
-                    
-                    <!-- ช่องค้นหา -->
-                    <input 
-                        type="text" 
-                        bind:value={searchArtistText} 
-                        placeholder="🔍 พิมพ์ค้นหาชื่อศิลปิน..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <!-- กล่อง Scroll ที่ขัง Checkbox ไว้ -->
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditArtists as artist}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <!-- หมายเหตุ: เปลี่ยน editTrack.artistIds เป็นชื่อตัวแปรฟอร์มของคุณ -->
-                                <input type="checkbox" bind:group={selectedArtists} value={artist.id}> {artist.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบศิลปินที่ค้นหา</p>
-                        {/each}
-                    </div>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <label style="font-weight: bold; display: block; margin-bottom: 8px;">🎸 แนวเพลง (Genres):</label>
-                    
-                    <input 
-                        type="text" 
-                        bind:value={searchGenreText} 
-                        placeholder="🔍 พิมพ์ค้นหาแนวเพลง..." 
-                        style="width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" 
-                    />
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 12px; border-radius: 4px; background: #fdfdfd; display: flex; flex-direction: column; gap: 8px;">
-                        {#each filteredEditGenres as genre}
-                            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95em;">
-                                <!-- หมายเหตุ: เปลี่ยน editTrack.genreIds เป็นชื่อตัวแปรฟอร์มของคุณ -->
-                                <input type="checkbox" bind:group={selectedGenres} value={genre.id}> {genre.name}
-                            </label>
-                        {:else}
-                            <p style="color: #999; font-size: 0.9em; margin: 0; text-align: center;">ไม่พบแนวเพลงที่ค้นหา</p>
-                        {/each}
-                    </div>
-                </div>
-
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <button onclick={saveEdit} disabled={isSavingEdit} style="padding: 12px 25px; background: #ff9800; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
-                        {isSavingEdit ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
-                    </button>
-                    <button onclick={cancelEdit} style="padding: 12px 25px; background: #ccc; border: none; border-radius: 4px; cursor: pointer;">
-                        ยกเลิก
-                    </button>
-                </div>
-            </div>
-        </section>
-    {/if}
-
-    <hr style="border: 0; border-top: 2px dashed #eee; margin-bottom: 30px;">
-
-    <!-- ================= รายการเพลงทั้งหมด ================= -->
-    <section style="background: #f9f9f9; padding: 25px; border-radius: 8px; border: 1px solid #ddd;">
-        <h2 style="margin-top: 0; color: #333;">🗂 รายการเพลงทั้งหมดในระบบ ({totalTracks} เพลง)</h2>
         
-        <!-- 👇 แถบ Filter ค้นหาอัจฉริยะ 👇 -->
-        <form onsubmit={applyFilter} style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-            
-            <div style="flex: 1; min-width: 250px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">ค้นหาแบบอิสระ หรือ Query (เช่น artist:"Oasis")</label>
-                <input type="text" bind:value={searchQuery} placeholder='🔍 ชื่อเพลง, หรือคำสั่ง เช่น album:"Meteora"' style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
+        <div class="flex flex-col items-end gap-3">
+            <div class="admin-badge">
+                <span class="pulse-icon"></span>
+                System Live: {adminAuthState.currentAdmin?.username}
             </div>
-            
-            <div style="flex: 1; min-width: 180px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">🎤 ค้นหาศิลปิน</label>
-                <input list="artist-list" bind:value={filterArtist} placeholder="พิมพ์ชื่อศิลปิน..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
-                <datalist id="artist-list">
-                    {#each availableArtists as artist}
-                        <option value={artist.name}></option>
+            <div class="flex gap-2 items-center">
+                <select bind:value={selectedMonth} class="filter-select" disabled={!selectedYear}>
+                    <option value="">All Months</option>
+                    {#each Array(12) as _, i}
+                        <option value={i + 1}>{new Date(0, i).toLocaleString('en', { month: 'short' })}</option>
                     {/each}
-                </datalist>
-            </div>
-
-            <div style="flex: 1; min-width: 180px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">💿 ค้นหาอัลบั้ม</label>
-                <input list="album-list" bind:value={filterAlbum} placeholder="พิมพ์ชื่ออัลบั้ม..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
-                <datalist id="album-list">
-                    {#each availableAlbums as album}
-                        <option value={album.title}></option>
-                    {/each}
-                </datalist>
-            </div>
-
-            <div style="flex: 1; min-width: 180px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555;">🎸 ค้นหาแนวเพลง</label>
-                <input list="genre-list" bind:value={filterGenre} placeholder="พิมพ์ชื่อแนวเพลง..." style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" />
-                <datalist id="genre-list">
-                    {#each availableGenres as genre}
-                        <option value={genre.name}></option>
-                    {/each}
-                </datalist>
-            </div>
-
-            <div style="display: flex; align-items: flex-end;">
-                <button type="submit" style="padding: 10px 20px; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; height: 40px;">ค้นหา</button>
-            </div>
-        </form>
-
-        <!-- ตารางเพลง -->
-        {#if allTracks.length > 0}
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                <!-- (โค้ดลูป #each allTracks เหมือนเดิมเป๊ะเลยครับ) -->
-                {#each allTracks as track}
-                    <div style="background: #fff; padding: 15px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; border-left: {editingTrackId === track.id ? '4px solid #ff9800' : '4px solid transparent'};">
-                        <div>
-                            <p style="margin: 0; font-weight: bold; font-size: 1.1em;">{track.title}</p>
-                            <p style="margin: 3px 0; font-size: 0.85em; color: #1db954;">
-                                🎤 {track.artists?.length > 0 ? track.artists.map((a: any) => a.name).join(', ') : '-'} | 
-                                🎸 {track.genres?.length > 0 ? track.genres.map((g: any) => g.name).join(', ') : '-'} | 
-                                💿 {track.album ? track.album.title : 'Single'}
-                            </p>
-                            <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">ยอดวิว: {track.viewCount || track.view_count} | ความยาว: {track.duration}</p>
-                        </div>
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick={() => startEdit(track)} style="padding: 8px 15px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">แก้ไข</button>
-                            <button onclick={() => handleDelete(track.id, track.title)} style="padding: 8px 15px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">ลบ</button>
-                        </div>
-                    </div>
-                {/each}
-            </div>
-
-            <!-- 👇 ปุ่มแบ่งหน้า (Pagination) 👇 -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
-                <button 
-                    disabled={currentPage === 1} 
-                    onclick={() => loadTracks(currentPage - 1)}
-                    style="padding: 8px 15px; background: {currentPage === 1 ? '#ccc' : '#1db954'}; color: white; border: none; border-radius: 4px; cursor: pointer;"
+                </select>
+                <select 
+                    bind:value={selectedYear} 
+                    class="filter-select"
+                    onchange={() => { if (!selectedYear) selectedMonth = ''; }}
                 >
-                    &laquo; หน้าก่อนหน้า
-                </button>
-                <span style="font-weight: bold;">หน้า {currentPage} จาก {totalPages}</span>
-                <button 
-                    disabled={currentPage === totalPages} 
-                    onclick={() => loadTracks(currentPage + 1)}
-                    style="padding: 8px 15px; background: {currentPage === totalPages ? '#ccc' : '#1db954'}; color: white; border: none; border-radius: 4px; cursor: pointer;"
-                >
-                    หน้าถัดไป &raquo;
+                    <option value="">All Time</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                </select>
+                <button onclick={exportToPDF} disabled={isExporting} class="pdf-btn">
+                    {isExporting ? '⏳ Processing...' : '📄 Export PDF'}
                 </button>
             </div>
-        {:else}
-            <p style="color: #666; text-align: center; padding: 20px;">ไม่พบเพลงที่ค้นหา</p>
-        {/if}
+        </div>
+    </header>
+
+    <section class="quick-actions mb-12">
+        <h2 class="section-title text-2xl font-black mb-6 tracking-tight flex items-center gap-3">
+            <span class="w-2 h-8 bg-primary rounded-full"></span>
+            Operational Modules
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <a href="/admin/tracks" class="module-card group">
+                <div class="module-icon tracks">🎵</div>
+                <div class="module-details">
+                    <strong class="module-name">Music Library</strong>
+                    <span class="module-desc">Upload & Sync Assets</span>
+                </div>
+                <div class="module-arrow">→</div>
+            </a>
+            <a href="/admin/artists" class="module-card group">
+                <div class="module-icon artists">🎤</div>
+                <div class="module-details">
+                    <strong class="module-name">Artists</strong>
+                    <span class="module-desc">Profiles & Creators</span>
+                </div>
+                <div class="module-arrow">→</div>
+            </a>
+            <a href="/admin/albums" class="module-card group">
+                <div class="module-icon albums">💿</div>
+                <div class="module-details">
+                    <strong class="module-name">Albums</strong>
+                    <span class="module-desc">Collections & Covers</span>
+                </div>
+                <div class="module-arrow">→</div>
+            </a>
+            <a href="/admin/users" class="module-card group">
+                <div class="module-icon users">👤</div>
+                <div class="module-details">
+                    <strong class="module-name">User Control</strong>
+                    <span class="module-desc">Permissions & Safety</span>
+                </div>
+                <div class="module-arrow">→</div>
+            </a>
+            <a href="/admin/merch" class="module-card group">
+                <div class="module-icon merch">🛍️</div>
+                <div class="module-details">
+                    <strong class="module-name">Store Mgmt</strong>
+                    <span class="module-desc">Inventory & Pricing</span>
+                </div>
+                <div class="module-arrow">→</div>
+            </a>
+            <a href="/admin/orders" class="module-card group">
+                <div class="module-icon orders">📦</div>
+                <div class="module-details">
+                    <strong class="module-name">Order Fulfillment</strong>
+                    <span class="module-desc">Billing & Logistics</span>
+                </div>
+                <div class="module-arrow">→</div>
+            </a>
+        </div>
     </section>
-</main>
+
+    {#if isLoading}
+        <div class="loader-container"><div class="spinner"></div></div>
+    {:else}
+        <div id="printable-dashboard" class="printable-area">
+            
+            <section class="kpi-grid">
+                <div class="kpi-card">
+                    <span class="kpi-label">Streams in Period</span>
+                    <span class="kpi-value">{topStreamedArtists.reduce((acc, curr) => acc + curr.totalStreams, 0).toLocaleString()}</span>
+                    <div class="kpi-trend positive">From {topStreamedArtists.length} Artists</div>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">Merch Revenue</span>
+                    <span class="kpi-value text-primary">{formatCurrency(merchRevenue.reduce((acc, curr) => acc + curr.totalRevenue, 0))}</span>
+                    <div class="kpi-trend">Period Sales</div>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">Avg. Order Value</span>
+                    <span class="kpi-value">{formatCurrency(highValuePurchases.systemAverage)}</span>
+                    <div class="kpi-trend">System Benchmark</div>
+                </div>
+                <div class="kpi-card">
+                    <span class="kpi-label">Active Users</span>
+                    <span class="kpi-value">{activeUsersReport.length}</span>
+                    <div class="kpi-trend premium">Performing Activities</div>
+                </div>
+            </section>
+
+            <section class="data-viz grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="chart-box">
+                    <h3 class="chart-title">Top Streamed Artists</h3>
+                    <div class="h-[250px]"><Bar data={topArtistsChart} options={{ responsive: true, maintainAspectRatio: false }} /></div>
+                </div>
+                <div class="chart-box">
+                    <h3 class="chart-title">Genre Popularity</h3>
+                    <div class="h-[250px]"><Pie data={genreChart} options={{ responsive: true, maintainAspectRatio: false }} /></div>
+                </div>
+                <div class="chart-box">
+                    <h3 class="chart-title">Merch Revenue by Artist</h3>
+                    <div class="h-[250px]"><Bar data={merchRevenueChart} options={{ responsive: true, maintainAspectRatio: false }} /></div>
+                </div>
+                <div class="chart-box">
+                    <h3 class="chart-title">Follower Engagement Rate</h3>
+                    <div class="h-[250px]"><Doughnut data={engagementChart} options={{ responsive: true, maintainAspectRatio: false }} /></div>
+                </div>
+            </section>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <section class="activity-box">
+                    <h2 class="section-title">🏆 Most Active Users</h2>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>User</th><th>Listen</th><th>Playlists</th><th>Score</th></tr></thead>
+                            <tbody>
+                                {#each activeUsersReport.slice(0, 5) as u}
+                                    <tr>
+                                        <td><div class="flex items-center gap-2"><img src={u.pfpUrl || 'https://placehold.co/32'} class="w-6 h-6 rounded-full" /> {u.username}</div></td>
+                                        <td>{u.listenCount}</td><td>{u.playlistCount}</td>
+                                        <td class="text-primary font-bold">{u.activityScore}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="activity-box">
+                    <h2 class="section-title">💎 High-Value Purchases</h2>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Order</th><th>Customer</th><th>Total</th></tr></thead>
+                            <tbody>
+                                {#each highValuePurchases.orders.slice(0, 5) as o}
+                                    <tr>
+                                        <td class="font-mono text-xs">{o.orderId.slice(0, 8)}</td>
+                                        <td>{o.username}</td>
+                                        <td class="text-primary font-bold">฿{o.totalPrice.toLocaleString()}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-4">* Orders higher than system average (฿{highValuePurchases.systemAverage.toFixed(2)})</p>
+                </section>
+            </div>
+        </div>
+    {/if}
+</div>
 
 <style>
-    /* สไตล์สำหรับปุ่มเมนู Admin Hub */
-    .nav-module-btn {
-        padding: 10px 16px;
-        background: #2a2a2a;
-        color: white;
+    @reference "../layout.css";
+    .command-center { max-width: 1300px; margin: 0 auto; padding: 2rem; color: #fff; font-family: 'Inter', sans-serif; }
+    .dashboard-header { display: flex; justify-content: space-between; margin-bottom: 2rem; }
+    .title { font-size: 2rem; font-weight: 900; background: linear-gradient(to right, #fff, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .subtitle { color: rgba(255, 255, 255, 0.4); font-size: 0.9rem; }
+    
+    .filter-select { background: #111; border: 1px solid #333; color: #fff; padding: 0.4rem 0.8rem; rounded: 8px; font-size: 0.8rem; }
+    .pdf-btn { background: #a855f7; color: #fff; font-weight: bold; padding: 0.4rem 1rem; rounded: 8px; font-size: 0.8rem; transition: transform 0.2s; }
+    .pdf-btn:hover { transform: scale(1.05); }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .kpi-card { background: #0a0a0a; padding: 1.5rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05); }
+    .kpi-label { font-size: 0.65rem; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+    .kpi-value { display: block; font-size: 1.5rem; font-weight: 800; margin: 0.4rem 0; }
+    .kpi-trend { font-size: 0.7rem; font-weight: bold; }
+    .positive { color: #10b981; } .premium { color: #a855f7; }
+
+    .chart-box { background: #0a0a0a; padding: 1.25rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05); }
+    .chart-title { font-size: 0.8rem; font-weight: 700; color: #999; margin-bottom: 1rem; text-transform: uppercase; }
+    
+    .activity-box { background: #0a0a0a; padding: 1.5rem; border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05); }
+    .section-title { font-size: 1rem; font-weight: 800; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; color: #444; padding-bottom: 0.8rem; font-size: 0.7rem; text-transform: uppercase; }
+    td { padding: 0.6rem 0; border-top: 1px solid #1a1a1a; }
+    
+    .loader-container { height: 400px; display: flex; align-items: center; justify-content: center; }
+    .spinner { width: 40px; height: 40px; border: 3px solid #1a1a1a; border-top-color: #a855f7; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .admin-badge { background: #111; padding: 0.4rem 0.8rem; border-radius: 99px; font-size: 0.7rem; border: 1px solid #222; display: flex; align-items: center; gap: 0.5rem; }
+    .pulse-icon { width: 6px; height: 6px; background: #10b981; border-radius: 50%; animation: pulse 2s infinite; }
+
+    /* --- Operational Modules Styling --- */
+    .module-card { 
+        display: flex; 
+        align-items: center; 
+        gap: 1.25rem; 
+        background: #0a0a0a; 
+        padding: 1.25rem; 
+        border-radius: 1rem; 
+        border: 1px solid rgba(255,255,255,0.05); 
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
         text-decoration: none;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 0.9em;
-        border: 1px solid #444;
-        transition: all 0.2s;
-        border-left: 4px solid var(--btn-color);
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        position: relative;
+        overflow: hidden;
     }
-    
-    .nav-module-btn:hover {
-        background: #333;
-        transform: translateY(-2px);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        border-color: var(--btn-color);
+    .module-card:hover { 
+        background: #111; 
+        border-color: #a855f7; 
+        transform: translateY(-4px) scale(1.02);
+        box-shadow: 0 10px 30px -10px rgba(168, 85, 247, 0.3);
     }
-    
-    .nav-module-btn:active {
-        transform: translateY(0);
+    .module-icon { 
+        width: 3.5rem; 
+        height: 3.5rem; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        font-size: 1.75rem; 
+        background: rgba(255, 255, 255, 0.03); 
+        border-radius: 0.75rem; 
+        transition: all 0.3s;
+    }
+    .module-card:hover .module-icon {
+        background: rgba(168, 85, 247, 0.1);
+        transform: rotate(-5deg);
+    }
+    .module-details { flex: 1; display: flex; flex-direction: column; }
+    .module-name { color: #fff; font-size: 1rem; font-weight: 700; transition: color 0.3s; }
+    .module-card:hover .module-name { color: #a855f7; }
+    .module-desc { color: rgba(255, 255, 255, 0.4); font-size: 0.75rem; font-weight: 500; }
+    .module-arrow { 
+        color: rgba(255, 255, 255, 0.1); 
+        font-size: 1.25rem; 
+        font-weight: 900; 
+        transition: all 0.3s; 
+        transform: translateX(-10px);
+        opacity: 0;
+    }
+    .module-card:hover .module-arrow {
+        transform: translateX(0);
+        opacity: 1;
+        color: #a855f7;
+    }
+
+    /* ===== PRINT MODE (CSS Class สำหรับ html-to-image snapshot) ===== */
+    :global(.print-mode),
+    :global(.print-mode *:not(canvas)) {
+        background-color: #ffffff !important;
+        color: #111111 !important;
+        border-color: #e0e0e0 !important;
+    }
+    :global(.print-mode .kpi-label),
+    :global(.print-mode .chart-title),
+    :global(.print-mode th) {
+        color: #555555 !important;
+    }
+    :global(.print-mode .positive) { color: #059669 !important; }
+    :global(.print-mode .premium)  { color: #7c3aed !important; }
+    :global(.print-mode .text-primary) { color: #7c3aed !important; }
+
+    /* ===== @media print สำหรับ Ctrl+P ===== */
+    @media print {
+        .dashboard-header .flex,
+        .quick-actions,
+        .admin-badge,
+        .pdf-btn,
+        .filter-select {
+            display: none !important; /* ซ่อน UI ที่ไม่จำเป็น */
+        }
+        .command-center {
+            padding: 0 !important;
+            max-width: 100% !important;
+            background: white !important;
+            color: black !important;
+        }
+        .kpi-card, .chart-box, .activity-box {
+            background: #f5f5f5 !important;
+            border-color: #ccc !important;
+            break-inside: avoid; /* ✅ ป้องกัน Card โดนตัดครึ่ง */
+        }
+        .kpi-value, .section-title, td, th { color: #111 !important; }
+        .title {
+            -webkit-text-fill-color: #111 !important; /* Gradient ไม่ Print ออกมา แก้เป็น solid */
+            background: none !important;
+        }
     }
 </style>

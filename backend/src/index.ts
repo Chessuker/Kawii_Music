@@ -2004,4 +2004,400 @@ app.get('/api/admin/artists/ranking', async (c) => {
   }
 });
 
+// --- 43. API Admin: แก้ไขข้อมูลศิลปิน (Update Artist) ---
+app.put('/api/admin/artists/:id', async (c) => {
+  try {
+    const artistId = c.req.param('id');
+    const { name, adminId } = await c.req.json();
+    if (!name) return c.json({ error: 'กรุณากรอกชื่อศิลปิน' }, 400);
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    await db.update(artists)
+      .set({ name })
+      .where(eq(artists.id, artistId));
+
+    await insertAuditLog(db, 'admin', 'update', `Updated artist: ${name} (${artistId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'อัปเดตข้อมูลศิลปินเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Update Artist Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 44. API Admin: ลบศิลปิน (Delete Artist) ---
+app.delete('/api/admin/artists/:id', async (c) => {
+  try {
+    const artistId = c.req.param('id');
+    const { adminId } = await c.req.json();
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    // เช็คก่อนว่ามีศิลปินนี้ไหม
+    const target = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (target.length === 0) return c.json({ error: 'ไม่พบศิลปิน' }, 404);
+
+    await db.delete(artists).where(eq(artists.id, artistId));
+    await insertAuditLog(db, 'admin', 'delete', `Deleted artist: ${target[0].name} (${artistId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'ลบศิลปินเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Delete Artist Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 45. API Admin: แก้ไขข้อมูลอัลบั้ม (Update Album) ---
+app.put('/api/admin/albums/:id', async (c) => {
+  try {
+    const albumId = c.req.param('id');
+    const { title, imgUrl, artistIds, adminId } = await c.req.json();
+    if (!title) return c.json({ error: 'กรุณากรอกชื่ออัลบั้ม' }, 400);
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    await db.update(albums)
+      .set({ title, imgUrl: imgUrl || null })
+      .where(eq(albums.id, albumId));
+
+    // อัปเดตศิลปินของอัลบั้ม
+    await db.delete(albumArtists).where(eq((albumArtists as any).albumId || (albumArtists as any).album_id, albumId));
+    if (artistIds && Array.isArray(artistIds) && artistIds.length > 0) {
+      await db.insert(albumArtists).values(
+        artistIds.map((id: string) => ({ albumId, artistId: id }))
+      );
+    }
+
+    await insertAuditLog(db, 'admin', 'update', `Updated album: ${title} (${albumId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'อัปเดตข้อมูลอัลบั้มเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Update Album Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 46. API Admin: ลบอัลบั้ม (Delete Album) ---
+app.delete('/api/admin/albums/:id', async (c) => {
+  try {
+    const albumId = c.req.param('id');
+    const { adminId } = await c.req.json();
+
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const target = await db.select().from(albums).where(eq(albums.id, albumId));
+    if (target.length === 0) return c.json({ error: 'ไม่พบอัลบั้ม' }, 404);
+
+    await db.delete(albums).where(eq(albums.id, albumId));
+    await insertAuditLog(db, 'admin', 'delete', `Deleted album: ${target[0].title} (${albumId})`, undefined, adminId);
+
+    return c.json({ success: true, message: 'ลบอัลบั้มเรียบร้อย' });
+  } catch (error) {
+    console.error("🔥 Delete Album Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 47. API Admin Report: Top Streamed Artists (รวมทั้งหมด และ แยกตามเดือน) ---
+app.get('/api/admin/reports/top-artists', async (c) => {
+  try {
+    // 👇 แก้ไขการเรียก Database ให้ตรงกับสถาปัตยกรรม Neon
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+    
+    // รับค่าเดือนและปีจาก URL (เช่น ?month=5&year=2026) ถ้าไม่ส่งมาจะดึงยอดรวมทั้งหมด
+    const month = c.req.query('month');
+    const year = c.req.query('year');
+
+    // 1. สร้างเงื่อนไขกรองตามเดือน/ปี
+    const conditions: any[] = [];
+    if (month) conditions.push(eq(drizzleSql`EXTRACT(MONTH FROM ${histories.listenedAt}::timestamp)`, Number(month)));
+    if (year) conditions.push(eq(drizzleSql`EXTRACT(YEAR FROM ${histories.listenedAt}::timestamp)`, Number(year)));
+    const dateFilter = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // 2. Query ดึงข้อมูลศิลปินยอดฮิต 
+    const topArtists = await db.select({
+      id: artists.id,
+      name: artists.name,
+      totalStreams: drizzleSql<number>`count(${histories.id})`.mapWith(Number)
+    })
+    .from(histories)
+    .innerJoin(tracks, eq((histories as any).trackId || (histories as any).track_id, tracks.id))
+    .innerJoin(trackArtists, eq(tracks.id, (trackArtists as any).trackId || (trackArtists as any).track_id))
+    .innerJoin(artists, eq((trackArtists as any).artistId || (trackArtists as any).artist_id, artists.id))
+    .where(dateFilter)
+    .groupBy(artists.id, artists.name)
+    .orderBy(desc(drizzleSql`count(${histories.id})`))
+    .limit(10); 
+
+    return c.json({ success: true, data: topArtists });
+  } catch (error) {
+    console.error("🔥 Report Top Artists Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 48. API Admin Report: Genre Popularity (รวมทั้งหมด และ แยกตามเดือน) ---
+app.get('/api/admin/reports/genre-popularity', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+    
+    // รับค่าเดือนและปีสำหรับการ Filter
+    const month = c.req.query('month');
+    const year = c.req.query('year');
+
+    // 1. สร้างเงื่อนไขกรองตามเดือน/ปี
+    const conditions: any[] = [];
+    if (month) conditions.push(eq(drizzleSql`EXTRACT(MONTH FROM ${histories.listenedAt}::timestamp)`, Number(month)));
+    if (year) conditions.push(eq(drizzleSql`EXTRACT(YEAR FROM ${histories.listenedAt}::timestamp)`, Number(year)));
+    const dateFilter = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // 2. Query ดึงข้อมูลแนวเพลงยอดฮิต
+    const genrePopularity = await db.select({
+      id: genres.id,
+      name: genres.name,
+      // นับจำนวนครั้งที่เพลงในแนวนี้ถูกเล่น
+      totalStreams: drizzleSql<number>`count(${histories.id})`.mapWith(Number)
+    })
+    .from(histories)
+    // ข้ามสะพาน: histories -> tracks -> track_genres -> genres
+    .innerJoin(tracks, eq((histories as any).trackId || (histories as any).track_id, tracks.id))
+    .innerJoin(trackGenres, eq(tracks.id, (trackGenres as any).trackId || (trackGenres as any).track_id))
+    .innerJoin(genres, eq((trackGenres as any).genreId || (trackGenres as any).genre_id, genres.id))
+    .where(dateFilter)
+    // จัดกลุ่มตามแนวเพลง
+    .groupBy(genres.id, genres.name)
+    // เรียงจากยอดฟังมากไปน้อย
+    .orderBy(desc(drizzleSql`count(${histories.id})`));
+
+    return c.json({ success: true, data: genrePopularity });
+  } catch (error) {
+    console.error("🔥 Report Genre Popularity Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 49. API Admin Report: Merch Revenue by Artist (รวมทั้งหมด และ แยกตามเดือน) ---
+app.get('/api/admin/reports/merch-revenue', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+    
+    // รับค่าเดือนและปีสำหรับการ Filter
+    const month = c.req.query('month');
+    const year = c.req.query('year');
+
+    // 1. สร้างเงื่อนไขกรองตามเดือน/ปี จากตารางบิลสั่งซื้อ (purchaseTransactions)
+    const conditions: any[] = [];
+    if (month) conditions.push(eq(drizzleSql`EXTRACT(MONTH FROM ${(purchaseTransactions as any).timePurchase || (purchaseTransactions as any).time_purchase}::timestamp)`, Number(month)));
+    if (year) conditions.push(eq(drizzleSql`EXTRACT(YEAR FROM ${(purchaseTransactions as any).timePurchase || (purchaseTransactions as any).time_purchase}::timestamp)`, Number(year)));
+    const dateFilter = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // 2. Query ดึงยอดขายของศิลปินแต่ละคน
+    const merchRevenue = await db.select({
+      id: artists.id,
+      name: artists.name,
+      // คำนวณรายได้: เอา ราคา (unitPrice) * จำนวน (quantity) แล้วหาผลรวม (SUM)
+      // ต้องมีการ CAST AS NUMERIC เพราะ Schema เราเก็บราคาเป็น String ไว้เพื่อป้องกันทศนิยมเพี้ยน
+      totalRevenue: drizzleSql<number>`SUM(CAST(${transactionItems.unitPrice} AS NUMERIC) * ${transactionItems.quantity})`.mapWith(Number),
+      // แถมยอดขายรวมเป็นชิ้นไปให้ด้วย เผื่อเอาไปวิเคราะห์ต่อ
+      itemsSold: drizzleSql<number>`SUM(${transactionItems.quantity})`.mapWith(Number)
+    })
+    .from(purchaseTransactions)
+    // ข้ามสะพาน 4 ต่อสุดโหด: Transaction -> Items -> Artist
+    .innerJoin(transactionItems, eq(purchaseTransactions.id, transactionItems.tranId))
+    .innerJoin(items, eq(transactionItems.itemId, items.id))
+    .innerJoin(artistItems, eq(items.id, (artistItems as any).itemId || (artistItems as any).item_id))
+    .innerJoin(artists, eq((artistItems as any).artistId || (artistItems as any).artist_id, artists.id))
+    .where(dateFilter)
+    // จัดกลุ่มตามศิลปิน
+    .groupBy(artists.id, artists.name)
+    // เรียงจากคนที่ทำรายได้มากที่สุดไปน้อยที่สุด
+    .orderBy(desc(drizzleSql`SUM(CAST(${transactionItems.unitPrice} AS NUMERIC) * ${transactionItems.quantity})`));
+
+    return c.json({ success: true, data: merchRevenue });
+  } catch (error) {
+    console.error("🔥 Report Merch Revenue Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 50. API Admin Report: Stream Engagement by Followers (ยอดฟังแยกตามสถานะการติดตาม) ---
+app.get('/api/admin/reports/follower-engagement', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+    
+    const month = c.req.query('month');
+    const year = c.req.query('year');
+
+    const conditions: any[] = [];
+    if (month) conditions.push(eq(drizzleSql`EXTRACT(MONTH FROM ${histories.listenedAt}::timestamp)`, Number(month)));
+    if (year) conditions.push(eq(drizzleSql`EXTRACT(YEAR FROM ${histories.listenedAt}::timestamp)`, Number(year)));
+    const dateFilter = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // 1. Query ลากข้อมูลจากประวัติการฟังไปหาการติดตาม
+    const rawEngagementData = await db.select({
+      id: artists.id,
+      name: artists.name,
+      // ยอดฟังรวมทั้งหมด (นับจากแถวใน histories)
+      totalStreams: drizzleSql<number>`count(${histories.id})`.mapWith(Number),
+      // ยอดฟังจาก "ผู้ติดตาม" (นับเฉพาะแถวที่ LEFT JOIN สำเร็จ และมี userId โผล่มา)
+      followerStreams: drizzleSql<number>`count(${(artistFollows as any).userId || (artistFollows as any).user_id})`.mapWith(Number)
+    })
+    .from(histories)
+    .innerJoin(tracks, eq((histories as any).trackId || (histories as any).track_id, tracks.id))
+    .innerJoin(trackArtists, eq(tracks.id, (trackArtists as any).trackId || (trackArtists as any).track_id))
+    .innerJoin(artists, eq((trackArtists as any).artistId || (trackArtists as any).artist_id, artists.id))
+    // 👇 The Magic: LEFT JOIN โดยมีเงื่อนไข 2 ข้อ (ผู้ใช้คนเดียวกัน AND ศิลปินคนเดียวกัน)
+    .leftJoin(artistFollows, and(
+        eq((artistFollows as any).userId || (artistFollows as any).user_id, (histories as any).userId || (histories as any).user_id),
+        eq((artistFollows as any).artistId || (artistFollows as any).artist_id, artists.id)
+    ))
+    .where(dateFilter)
+    .groupBy(artists.id, artists.name)
+    .orderBy(desc(drizzleSql`count(${histories.id})`));
+
+    // 2. Data Processing: คำนวณเป็นเปอร์เซ็นต์ (Engagement Rate) ให้ Frontend เอาไปตีเป็นกราฟง่ายๆ
+    const enrichedData = rawEngagementData.map(item => {
+      const nonFollowerStreams = item.totalStreams - item.followerStreams;
+      const followerPercentage = item.totalStreams > 0 
+        ? Math.round((item.followerStreams / item.totalStreams) * 100) 
+        : 0;
+
+      return {
+        ...item,
+        nonFollowerStreams,
+        followerPercentage: `${followerPercentage}%`
+      };
+    });
+
+    return c.json({ success: true, data: enrichedData });
+  } catch (error) {
+    console.error("🔥 Report Follower Engagement Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 51. API Admin Report: Most Active Users (จัดอันดับผู้ใช้งานยอดเยี่ยม) ---
+app.get('/api/admin/reports/active-users', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+    
+    const month = c.req.query('month');
+    const year = c.req.query('year');
+
+    // 1. สร้างเงื่อนไขเวลาแยกสำหรับ histories และ playlists
+    const historyConds: any[] = [];
+    if (month) historyConds.push(eq(drizzleSql`EXTRACT(MONTH FROM ${histories.listenedAt}::timestamp)`, Number(month)));
+    if (year) historyConds.push(eq(drizzleSql`EXTRACT(YEAR FROM ${histories.listenedAt}::timestamp)`, Number(year)));
+    const historyDateFilter = historyConds.length > 0 ? and(...historyConds) : undefined;
+
+    const playlistConds: any[] = [];
+    if (month) playlistConds.push(eq(drizzleSql`EXTRACT(MONTH FROM ${(playlists as any).createdAt || (playlists as any).created_at || drizzleSql`now()`}::timestamp)`, Number(month)));
+    if (year) playlistConds.push(eq(drizzleSql`EXTRACT(YEAR FROM ${(playlists as any).createdAt || (playlists as any).created_at || drizzleSql`now()`}::timestamp)`, Number(year)));
+    const playlistDateFilter = playlistConds.length > 0 ? and(...playlistConds) : undefined;
+
+    // 2. Query ดึงข้อมูลผู้ใช้งาน พร้อมคำนวณคะแนน (Score)
+    const activeUsers = await db.select({
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      pfpUrl: users.pfpUrl || (users as any).pfp_url,
+      // ใช้ COUNT DISTINCT เพื่อป้องกันตัวเลขเบิ้ลจากการ JOIN 2 ตาราง
+      listenCount: drizzleSql<number>`count(distinct ${histories.id})`.mapWith(Number),
+      playlistCount: drizzleSql<number>`count(distinct ${playlists.id})`.mapWith(Number),
+      // ถ่วงน้ำหนักคะแนน: ฟัง 1 เพลง = 1 แต้ม | สร้าง 1 เพลย์ลิสต์ = 5 แต้ม
+      activityScore: drizzleSql<number>`(count(distinct ${histories.id}) * 1) + (count(distinct ${playlists.id}) * 5)`.mapWith(Number)
+    })
+    .from(users)
+    .leftJoin(histories, and(
+        eq((histories as any).userId || (histories as any).user_id, users.id),
+        historyDateFilter
+    ))
+    .leftJoin(playlists, and(
+        eq((playlists as any).userId || (playlists as any).user_id, users.id),
+        playlistDateFilter
+    ))
+    .groupBy(users.id, users.username, users.displayName, users.pfpUrl || (users as any).pfp_url)
+    .having(drizzleSql`(count(distinct ${histories.id}) * 1) + (count(distinct ${playlists.id}) * 5) > 0`)
+    .orderBy(desc(drizzleSql`(count(distinct ${histories.id}) * 1) + (count(distinct ${playlists.id}) * 5)`))
+    .limit(20);
+
+    return c.json({ success: true, data: activeUsers });
+  } catch (error) {
+    console.error("🔥 Report Active Users Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// --- 52. API Admin Report: High-Value Purchases (ยอดสั่งซื้อที่สูงกว่าค่าเฉลี่ยระบบ) ---
+app.get('/api/admin/reports/high-value-purchases', async (c) => {
+  try {
+    const sql = neon(c.env.DATABASE_URL);
+    const db = drizzle(sql);
+
+    const month = c.req.query('month');
+    const year = c.req.query('year');
+
+    // 1. เงื่อนไขเวลา
+    const conditions: any[] = [];
+    if (month) conditions.push(eq(drizzleSql`EXTRACT(MONTH FROM ${(purchaseTransactions as any).timePurchase || (purchaseTransactions as any).time_purchase}::timestamp)`, Number(month)));
+    if (year) conditions.push(eq(drizzleSql`EXTRACT(YEAR FROM ${(purchaseTransactions as any).timePurchase || (purchaseTransactions as any).time_purchase}::timestamp)`, Number(year)));
+    const dateFilter = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // 2. The Subquery: สร้างคำสั่งหาค่าเฉลี่ย (Average) ของบิลทั้งหมดในระบบ
+    const avgQuery = db.select({
+        avgTotal: drizzleSql<number>`AVG(CAST(${purchaseTransactions.totalPrice} AS NUMERIC))`
+    })
+    .from(purchaseTransactions)
+    .where(dateFilter);
+
+    // 3. The Main Query: ดึงบิลที่มียอดสูงกว่าค่าเฉลี่ย พร้อม JOIN หาชื่อคนซื้อ
+    const highValueOrders = await db.select({
+      orderId: purchaseTransactions.id,
+      // CAST ให้กลับมาเป็นตัวเลขเพื่อส่งให้ Frontend แบบสวยๆ
+      totalPrice: drizzleSql<number>`CAST(${purchaseTransactions.totalPrice} AS NUMERIC)`.mapWith(Number),
+      totalItemCount: purchaseTransactions.totalItemCount,
+      timePurchase: (purchaseTransactions as any).timePurchase || (purchaseTransactions as any).time_purchase,
+      userId: users.id,
+      username: users.username,
+      displayName: users.displayName
+    })
+    .from(purchaseTransactions)
+    .innerJoin(users, eq(purchaseTransactions.userId, users.id))
+    .where(
+        and(
+            // 👇 ไฮไลท์: เอาบิลที่ราคารวม มากกว่า (>) ผลลัพธ์จาก avgQuery
+            drizzleSql`CAST(${purchaseTransactions.totalPrice} AS NUMERIC) > (${avgQuery})`,
+            dateFilter
+        )
+    )
+    .orderBy(desc(drizzleSql`CAST(${purchaseTransactions.totalPrice} AS NUMERIC)`))
+    .limit(30);
+
+    // 4. แอบยิง Query หาค่าเฉลี่ยแยกมาอีก 1 รอบ เพื่อส่งตัวเลข Average ไปโชว์บนกราฟ Frontend ด้วย
+    const avgResult = await avgQuery;
+    const systemAvg = avgResult[0]?.avgTotal ? Number(avgResult[0].avgTotal) : 0;
+
+    return c.json({ 
+        success: true, 
+        data: {
+            systemAverage: systemAvg, // ส่งค่าเฉลี่ยระบบไปให้ Frontend ด้วย
+            orders: highValueOrders   // ส่งรายชื่อบิล VIP
+        } 
+    });
+  } catch (error) {
+    console.error("🔥 Report High-Value Purchases Error:", error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
 export default app;

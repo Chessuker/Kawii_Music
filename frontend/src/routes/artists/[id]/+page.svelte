@@ -60,66 +60,124 @@
     }
 </script>
 
-<main style="max-width: 1000px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    <a href="/artists" style="color: #1db954; text-decoration: none; font-weight: bold;">← กลับไปหน้าศิลปิน</a>
+<main class="max-w-5xl mx-auto py-10 px-5 font-sans">
+    <a href="/artists" class="text-primary hover:text-primary-hover transition-colors font-bold mb-8 inline-block">← กลับไปหน้าศิลปิน</a>
 
     {#if loading}
-        <p style="text-align: center; margin-top: 50px;">กำลังโหลดข้อมูล...</p>
+        <div class="flex flex-col items-center justify-center mt-20 gap-4">
+            <div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <p class="text-text-muted animate-pulse font-medium">กำลังโหลดข้อมูลศิลปิน...</p>
+        </div>
     {:else if artist}
-        <div style="display: flex; gap: 40px; align-items: center; margin: 40px 0; background: linear-gradient(135deg, #111, #282828); padding: 40px; border-radius: 15px; color: white;">
-            <div style="width: 200px; height: 200px; background: linear-gradient(135deg, #1db954, #1976d2); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 5em; font-weight: bold; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                {artist.name.charAt(0).toUpperCase()}
-            </div>
-            <div>
-                <p style="margin: 0; font-weight: bold; text-transform: uppercase; font-size: 0.9em; letter-spacing: 2px; color: #1db954;">Artist</p>
-                <h1 style="margin: 10px 0; font-size: 4em;">{artist.name}</h1>
+        <!-- Artist Header Banner -->
+        <div class="relative overflow-hidden rounded-3xl mb-12 group">
+            <div class="absolute inset-0 bg-gradient-to-br from-primary/40 to-black/80 z-10"></div>
+            <div class="relative flex flex-col md:flex-row gap-8 items-center md:items-end p-8 md:p-12 z-20">
+                <div class="w-48 h-48 md:w-64 md:h-64 bg-gradient-to-br from-primary to-purple-800 rounded-full flex items-center justify-center text-7xl md:text-9xl font-bold text-white shadow-2xl border-4 border-white/10 shrink-0">
+                    {artist.name.charAt(0).toUpperCase()}
+                </div>
                 
-                <div style="display: flex; gap: 15px; margin-top: 25px;">
-                    <button onclick={() => tracks.length > 0 && playTrack(tracks[0], tracks)} style="padding: 12px 35px; background: #1db954; color: white; border: none; border-radius: 50px; font-weight: bold; font-size: 1.1em; cursor: pointer; {tracks.length === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''}">▶ เล่นเพลง</button>
-                    <button onclick={toggleFollow} style="padding: 12px 35px; border: 2px solid #fff; color: {isFollowing ? '#000' : '#fff'}; background: {isFollowing ? '#fff' : 'transparent'}; border-radius: 50px; font-weight: bold; font-size: 1.1em; cursor: pointer; transition: all 0.2s;">
-                        {isFollowing ? '✓ กำลังติดตาม' : 'ติดตาม'}
-                    </button>
+                <div class="flex-1 text-center md:text-left">
+                    <p class="flex items-center gap-2 font-bold uppercase text-xs md:text-sm tracking-[0.2em] text-primary mb-3">
+                        <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                        Verified Artist
+                    </p>
+                    <h1 class="text-5xl md:text-8xl font-black text-white mb-8 tracking-tighter drop-shadow-lg">{artist.name}</h1>
+                    
+                    <div class="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-6">
+                        <button 
+                            onclick={() => tracks.length > 0 && playTrack(tracks[0], tracks)} 
+                            class="px-8 py-4 bg-primary hover:bg-primary-hover text-white rounded-full font-black text-lg shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                            disabled={tracks.length === 0}
+                        >
+                            <span class="text-2xl">▶</span> เล่นเพลงทั้งหมด
+                        </button>
+                        
+                        <button 
+                            onclick={toggleFollow} 
+                            class="px-8 py-4 rounded-full font-black text-lg border-2 transition-all flex items-center gap-2 hover:scale-105 active:scale-95 {isFollowing ? 'bg-white text-black border-white' : 'bg-transparent text-white border-white/20 hover:border-white'}"
+                        >
+                            {isFollowing ? '✓ กำลังติดตาม' : 'ติดตาม'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
+        <!-- Albums Section -->
         {#if albums.length > 0}
-            <h2 style="margin-top: 50px;">💿 อัลบั้มของ {artist.name}</h2>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px; margin-bottom: 50px;">
-                {#each albums as album}
-                    <a href="/albums/{album.id}" style="text-decoration: none; color: inherit; display: block;">
-                        <div style="background: #fff; border-radius: 10px; overflow: hidden; border: 1px solid #eee; transition: transform 0.2s;" onmouseover={(e) => e.currentTarget.style.transform = 'translateY(-5px)'} onmouseout={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
-                            <div style="aspect-ratio: 1/1; background: #eee; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                                {#if album.imgUrl}
-                                    <img src={album.imgUrl} alt={album.title} style="width: 100%; height: 100%; object-fit: cover;" />
-                                {:else}
-                                    <span style="font-size: 4em;">💿</span>
-                                {/if}
+            <div class="mb-16">
+                <div class="flex items-center justify-between mb-8">
+                    <h2 class="text-3xl font-black text-white tracking-tight">💿 ผลงานอัลบั้ม</h2>
+                    <span class="text-text-muted text-sm font-medium">{albums.length} อัลบั้ม</span>
+                </div>
+                
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                    {#each albums as album}
+                        <a href="/albums/{album.id}" class="group block">
+                            <div class="bg-bg-surface hover:bg-bg-highlight p-4 rounded-2xl transition-all duration-300 shadow-lg border border-white/5 hover:-translate-y-2">
+                                <div class="aspect-square bg-bg-highlight rounded-xl flex items-center justify-center overflow-hidden mb-4 relative shadow-inner">
+                                    {#if album.imgUrl}
+                                        <img src={album.imgUrl} alt={album.title} class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                    {:else}
+                                        <span class="text-5xl opacity-20">💿</span>
+                                    {/if}
+                                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <div class="w-12 h-12 bg-primary rounded-full flex items-center justify-center shadow-xl translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
+                                            <span class="text-white text-xl">▶</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <h3 class="text-sm font-bold text-white truncate group-hover:text-primary transition-colors">{album.title}</h3>
+                                <p class="text-xs text-text-muted mt-1">Album • {new Date().getFullYear()}</p>
                             </div>
-                            <div style="padding: 15px;">
-                                <h3 style="margin: 0; font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{album.title}</h3>
-                            </div>
-                        </div>
-                    </a>
-                {/each}
+                        </a>
+                    {/each}
+                </div>
             </div>
         {/if}
 
+        <!-- Popular Tracks Section -->
         {#if tracks.length > 0}
-            <h2>🎵 เพลงฮิต</h2>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                {#each tracks as track, i}
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border-radius: 6px; transition: background 0.2s; cursor: pointer; background: #fff; border: 1px solid #f0f0f0;" onmouseover={(e) => e.currentTarget.style.background = '#f9f9f9'} onmouseout={(e) => e.currentTarget.style.background = '#fff'} onclick={() => playTrack(track, tracks)}>
-                        <div style="display: flex; align-items: center; gap: 20px;">
-                            <span style="color: #888; width: 20px; font-weight: bold;">{i + 1}</span>
-                            <div>
-                                <p style="margin: 0; font-weight: bold; color: #333;">{track.title}</p>
-                                <p style="margin: 3px 0 0 0; font-size: 0.85em; color: #888;">ยอดวิว: {track.viewCount || 0}</p>
+            <div>
+                <div class="flex items-center justify-between mb-8">
+                    <h2 class="text-3xl font-black text-white tracking-tight">🎵 เพลงยอดนิยม</h2>
+                    <span class="text-text-muted text-sm font-medium">{tracks.length} รายการ</span>
+                </div>
+                
+                <div class="flex flex-col rounded-2xl overflow-hidden bg-bg-surface/50 border border-white/5 divide-y divide-white/5">
+                    {#each tracks as track, i}
+                        <div 
+                            class="flex items-center justify-between p-4 hover:bg-white/5 transition-all group cursor-pointer"
+                            onclick={() => playTrack(track, tracks)}
+                            role="button"
+                            tabindex="0"
+                            onkeydown={(e) => e.key === 'Enter' && playTrack(track, tracks)}
+                        >
+                            <div class="flex items-center gap-4 min-w-0">
+                                <div class="w-8 text-center text-text-muted font-bold group-hover:hidden">{i + 1}</div>
+                                <div class="w-8 text-center text-primary font-bold hidden group-hover:block">▶</div>
+                                
+                                <div class="min-w-0">
+                                    <p class="font-bold text-white truncate group-hover:text-primary transition-colors">{track.title}</p>
+                                    <div class="flex items-center gap-2 text-xs text-text-muted mt-0.5">
+                                        <span class="flex items-center gap-1">
+                                            <span class="w-1 h-1 rounded-full bg-text-muted/50"></span>
+                                            {track.viewCount || 0} views
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-6">
+                                <span class="text-sm text-text-muted font-mono">{track.duration || '0:00'}</span>
+                                <button class="opacity-0 group-hover:opacity-100 transition-opacity text-text-muted hover:text-primary text-xl" onclick={(e) => { e.stopPropagation(); /* handle favorite */ }}>
+                                    💜
+                                </button>
                             </div>
                         </div>
-                        <span style="color: #888; font-size: 0.9em;">{track.duration}</span>
-                    </div>
-                {/each}
+                    {/each}
+                </div>
             </div>
         {/if}
     {/if}

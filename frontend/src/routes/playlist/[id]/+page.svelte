@@ -6,7 +6,6 @@
     let tracks: any[] = $state([]);
     let isLoading = $state(true);
 
-    // ดึงข้อมูลเมื่อ ID ใน URL เปลี่ยนแปลง
     $effect(() => {
         const currentId = $page.params.id;
         if (currentId) {
@@ -29,7 +28,6 @@
         isLoading = false;
     }
 
-    // ฟังก์ชันเล่นเพลงทั้งหมดในเพลย์ลิสต์ (เอาเพลงแรกเล่นก่อน และส่งทั้ง array เข้า queue)
     function playAll() {
         if (tracks.length > 0) {
             playTrack(tracks[0], tracks);
@@ -37,63 +35,95 @@
     }
 </script>
 
-<main style="max-width: 800px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    <a href="/" style="color: #1db954; text-decoration: none; font-weight: bold;">← กลับหน้าแรก</a>
+<div class="flex flex-col gap-8">
+    <a href="/" class="text-text-muted hover:text-white font-bold text-sm flex items-center gap-2 transition-colors">
+        <span>&lsaquo;</span> Back to Home
+    </a>
 
     {#if isLoading}
-        <p style="text-align: center; margin-top: 50px;">กำลังโหลดเพลย์ลิสต์...</p>
+        <div class="flex justify-center items-center h-64">
+            <p class="text-text-muted animate-pulse font-bold text-xl">Loading playlist...</p>
+        </div>
     {:else if playlist}
-        
-        <!-- Header ของเพลย์ลิสต์ -->
-        <div style="display: flex; align-items: center; gap: 30px; margin-top: 30px; margin-bottom: 40px;">
-            <div style="width: 150px; height: 150px; background: #282828; display: flex; justify-content: center; align-items: center; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-                <span style="font-size: 4em;">🎵</span>
+        <!-- Header Section -->
+        <div class="flex flex-col md:flex-row items-end gap-8 bg-gradient-to-t from-bg-surface/50 to-bg-highlight/40 p-10 rounded-3xl border border-white/5 shadow-2xl">
+            <div class="w-64 h-64 bg-gradient-to-br from-purple-800 to-indigo-900 flex items-center justify-center rounded-lg shadow-[0_20px_50px_rgba(0,0,0,0.5)] shrink-0">
+                <span class="text-9xl filter drop-shadow-lg">🎵</span>
             </div>
-            <div>
-                <p style="margin: 0; font-size: 0.9em; text-transform: uppercase; letter-spacing: 2px; color: #666;">Playlist</p>
-                <h1 style="margin: 5px 0; font-size: 3.5em;">{playlist.name}</h1>
-                <p style="margin: 5px 0 0 0; color: #666;">มีทั้งหมด {tracks.length} เพลง</p>
-                
-                {#if tracks.length > 0}
+            <div class="flex flex-col gap-2">
+                <p class="text-xs font-black uppercase tracking-[0.2em]">Playlist</p>
+                <h1 class="text-5xl md:text-7xl font-black tracking-tight mb-4">{playlist.name}</h1>
+                <div class="flex items-center gap-2 text-sm font-bold">
+                    <span class="text-white">Created for you</span>
+                    <span class="text-text-muted">• {tracks.length} tracks</span>
+                </div>
+                <div class="mt-6">
                     <button 
                         onclick={playAll}
-                        style="margin-top: 20px; padding: 12px 30px; background: #1db954; color: white; border: none; border-radius: 50px; font-size: 1.1em; font-weight: bold; cursor: pointer; box-shadow: 0 4px 10px rgba(29, 185, 84, 0.4);"
+                        class="bg-primary hover:bg-primary-hover text-black px-10 py-3 rounded-full font-black text-lg transition-all hover:scale-105 active:scale-95 shadow-xl"
                     >
-                        ▶ เล่นทั้งหมด
+                        ▶ Play
                     </button>
-                {/if}
+                </div>
             </div>
         </div>
 
-        <!-- รายการเพลง -->
-        {#if tracks.length > 0}
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                {#each tracks as track, index}
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div 
-                        onclick={() => playTrack(track, tracks)}
-                        style="display: flex; align-items: center; padding: 15px; border-radius: 8px; cursor: pointer; transition: background 0.2s;"
-                        onmouseover={(e) => e.currentTarget.style.background = '#f4f4f4'}
-                        onmouseout={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                        <div style="width: 30px; color: #aaa; text-align: right; margin-right: 20px;">{index + 1}</div>
-                        <div style="flex-grow: 1;">
-                            <p style="margin: 0; font-weight: bold; font-size: 1.1em;">{track.title}</p>
-                        </div>
-                        <div style="color: #666; font-size: 0.9em;">
-                            {track.duration}
-                        </div>
+        <div class="px-2">
+            {#if tracks.length > 0}
+                <div class="bg-bg-elevated/30 rounded-2xl border border-white/5 overflow-hidden">
+                    <div class="grid grid-cols-[auto_1fr_auto] gap-4 px-6 py-4 text-xs font-bold text-text-muted border-b border-white/10 uppercase tracking-widest">
+                        <div class="w-10">#</div>
+                        <div>Title</div>
+                        <div class="pr-8">Duration</div>
                     </div>
-                {/each}
-            </div>
-        {:else}
-            <div style="text-align: center; padding: 50px; background: #f9f9f9; border-radius: 8px; color: #888;">
-                ยังไม่มีเพลงในเพลย์ลิสต์นี้ <br>กลับไปหน้าแรกเพื่อเพิ่มเพลงเลย!
-            </div>
-        {/if}
-        
+
+                    <div class="flex flex-col py-2">
+                        {#each tracks as track, index}
+                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                            <!-- svelte-ignore a11y_no_static_element_interactions -->
+                            <div 
+                                class="group grid grid-cols-[auto_1fr_auto] gap-4 px-6 py-3 items-center hover:bg-white/10 transition-colors rounded-md mx-2 cursor-pointer"
+                                onclick={() => playTrack(track, tracks)}
+                            >
+                                <div class="w-10 text-text-muted text-sm group-hover:hidden">{index + 1}</div>
+                                <button class="w-10 text-white text-sm hidden group-hover:block text-left">▶</button>
+                                
+                                <div class="flex items-center gap-4 min-w-0">
+                                    <div class="w-12 h-12 bg-bg-highlight rounded overflow-hidden shrink-0 shadow-lg flex items-center justify-center text-xl">
+                                        {#if track.album?.imgUrl || track.album?.img_url}
+                                            <img src={track.album.imgUrl || track.album.img_url} alt="" class="w-full h-full object-cover" />
+                                        {:else}
+                                            🎵
+                                        {/if}
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="font-bold text-white text-base truncate">{track.title}</div>
+                                        <div class="text-text-muted text-sm truncate">
+                                            {track.artists?.map((a:any) => a.name).join(', ') || 'Unknown'}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <span class="text-sm text-text-muted w-12 text-right">{track.duration}</span>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            {:else}
+                <div class="flex flex-col items-center justify-center py-20 text-center gap-6 bg-bg-elevated/30 rounded-3xl border-2 border-dashed border-white/10">
+                    <span class="text-7xl opacity-50">🎧</span>
+                    <div>
+                        <h3 class="text-2xl font-bold mb-2">This playlist is empty</h3>
+                        <p class="text-text-muted">Go back to the home page and add some songs!</p>
+                    </div>
+                    <a href="/" class="bg-white text-black px-8 py-3 rounded-full font-bold hover:scale-105 transition-all">Find songs</a>
+                </div>
+            {/if}
+        </div>
     {:else}
-        <p style="text-align: center; margin-top: 50px; color: red;">ไม่พบข้อมูลเพลย์ลิสต์</p>
+        <div class="flex flex-col items-center justify-center h-64 text-center">
+            <p class="text-red-400 font-bold text-xl">Playlist not found</p>
+            <a href="/" class="text-primary hover:underline mt-4">Go back Home</a>
+        </div>
     {/if}
-</main>
+</div>

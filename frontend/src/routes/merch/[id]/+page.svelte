@@ -55,6 +55,7 @@
         }
         
         localStorage.setItem('kawii_cart', JSON.stringify(cart));
+        window.dispatchEvent(new Event('cart-updated'));
 
         // หน่วงเวลาให้ปุ่มมี Effect นิดหน่อยเพื่อ UX ที่ดี
         setTimeout(() => {

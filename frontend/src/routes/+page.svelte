@@ -24,6 +24,16 @@
     let filterAlbum = $state('');
     let isSearching = $state(false);
 
+    let filteredSearchArtists = $derived(
+        availableArtists.filter(a => a.name.toLowerCase().includes(filterArtist.toLowerCase())).slice(0, 50)
+    );
+    let filteredSearchAlbums = $derived(
+        availableAlbums.filter(a => a.title.toLowerCase().includes(filterAlbum.toLowerCase())).slice(0, 50)
+    );
+    let filteredSearchGenres = $derived(
+        availableGenres.filter(g => g.name.toLowerCase().includes(filterGenre.toLowerCase())).slice(0, 50)
+    );
+
     let recentHistory: any[] = $state([]);
 
     onMount(() => {
@@ -32,20 +42,22 @@
     });
 
     async function loadMetadata() {
-        const [metaRes, albumRes] = await Promise.all([
-            fetch('http://127.0.0.1:8787/api/metadata'),
-            fetch('http://127.0.0.1:8787/api/albums')
-        ]);
-        const metaData = await metaRes.json();
-        const albumData = await albumRes.json();
-        
-        if (metaData.success) {
-            availableArtists = metaData.artists;
-            availableGenres = metaData.genres;
-        }
-        if (albumData.success) {
-            availableAlbums = albumData.data; // เก็บรายชื่ออัลบั้ม
-        }
+        try {
+            const [metaRes, albumRes] = await Promise.all([
+                fetch('http://127.0.0.1:8787/api/metadata'),
+                fetch('http://127.0.0.1:8787/api/albums')
+            ]);
+            const metaData = await metaRes.json();
+            const albumData = await albumRes.json();
+            
+            if (metaData.success) {
+                availableArtists = metaData.artists;
+                availableGenres = metaData.genres;
+            }
+            if (albumData.success) {
+                availableAlbums = albumData.data;
+            }
+        } catch (e) { console.error(e); }
     }
 
     async function loadTracks(page = 1) {
@@ -57,7 +69,7 @@
         if (searchQuery.trim()) queryParams.append('search', searchQuery.trim());
         if (filterArtist) queryParams.append('artist', filterArtist);
         if (filterGenre) queryParams.append('genre', filterGenre);
-        if (filterAlbum) queryParams.append('album', filterAlbum); // 👇 เพิ่มบรรทัดนี้
+        if (filterAlbum) queryParams.append('album', filterAlbum);
 
         try {
             const res = await fetch(`http://127.0.0.1:8787/api/tracks?${queryParams.toString()}`);
@@ -77,16 +89,15 @@
         loadTracks(1);
     }
 
-    // ดึงข้อมูลเพลย์ลิสต์อัตโนมัติ ถ้ามี User ล็อกอินอยู่
     $effect(() => {
         if (authState.currentUser?.id) {
             fetchPlaylists(authState.currentUser.id);
             fetchUserLikes(authState.currentUser.id);
-            fetchHistory(authState.currentUser.id); // 👇 เพิ่มบรรทัดนี้
+            fetchHistory(authState.currentUser.id);
         } else {
             myPlaylists = []; 
             likedTrackIds = [];
-            recentHistory = []; // 👇 เพิ่มบรรทัดนี้
+            recentHistory = [];
         }
     });
 
@@ -116,31 +127,33 @@
             return;
         }
         
+        // ⚡ Optimistic UI: อัปเดตหน้าจอก่อนเลยทันที เพื่อความลื่นไหล
+        const isCurrentlyLiked = likedTrackIds.includes(trackId);
+        if (isCurrentlyLiked) {
+            likedTrackIds = likedTrackIds.filter(id => id !== trackId);
+        } else {
+            likedTrackIds = [...likedTrackIds, trackId];
+        }
+        
         try {
-            const res = await fetch(`http://127.0.0.1:8787/api/tracks/${trackId}/like`, {
+            // ยิง API แบบ Background
+            await fetch(`http://127.0.0.1:8787/api/tracks/${trackId}/like`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: authState.currentUser.id })
             });
-            const result = await res.json();
-            
-            if (result.success) {
-                // อัปเดต UI ทันทีโดยไม่ต้องรีเฟรชหน้า (Optimistic UI Update)
-                if (result.liked) {
-                    likedTrackIds = [...likedTrackIds, trackId];
-                } else {
-                    likedTrackIds = likedTrackIds.filter(id => id !== trackId);
-                }
-            }
+            // (ถ้าต้องการความชัวร์ 100% อาจจะเช็ก result คืนมา ถ้า Error ค่อย Rollback ตัวแปรกลับ)
         } catch (error) {
             alert('เกิดข้อผิดพลาดในการเชื่อมต่อ');
         }
     }
 
     async function fetchPlaylists(userId: string) {
-        const res = await fetch(`http://127.0.0.1:8787/api/users/${userId}/playlists`);
-        const result = await res.json();
-        if (result.success) myPlaylists = result.data;
+        try {
+            const res = await fetch(`http://127.0.0.1:8787/api/users/${userId}/playlists`);
+            const result = await res.json();
+            if (result.success) myPlaylists = result.data;
+        } catch (e) { console.error(e); }
     }
 
     async function createPlaylist() {
@@ -156,7 +169,7 @@
             const result = await res.json();
             if (result.success) {
                 newPlaylistName = '';
-                fetchPlaylists(authState.currentUser.id); // โหลดใหม่
+                fetchPlaylists(authState.currentUser.id);
             }
         } catch (error) {
             alert('สร้างไม่ได้ ลองใหม่อีกครั้ง');
@@ -183,174 +196,147 @@
     }
 </script>
 
-<main style="max-width: 800px; margin: 0 auto; padding: 20px; font-family: sans-serif;">
-    <h1 style="color: #1db954;">🎧 คลังเพลง Kawii Music</h1>
-    
-    <!-- 👇 ส่วนของเพลย์ลิสต์ (แสดงเฉพาะตอนที่ล็อกอินแล้ว) 👇 -->
-    {#if authState.currentUser}
-        <section style="background: #282828; color: white; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
-            <h2 style="margin-top: 0;">📚 My Playlists</h2>
-            
-            <!-- ฟอร์มสร้างเพลย์ลิสต์ -->
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <input type="text" bind:value={newPlaylistName} placeholder="ชื่อเพลย์ลิสต์ใหม่..." style="flex: 1; padding: 10px; border-radius: 4px; border: none;" />
-                <button onclick={createPlaylist} disabled={isCreating} style="padding: 10px 20px; background: #1db954; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
-                    {isCreating ? '...' : '+ สร้าง'}
-                </button>
-            </div>
-
-            <div style="display: flex; gap: 10px;">
-                <a href="/albums" style="padding: 8px 15px; background: linear-gradient(135deg, #ff9800, #f44336); color: white; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 0.9em; box-shadow: 0 2px 5px rgba(244, 67, 54, 0.3);">
-                    💿 All Albums
+<div class="max-w-6xl mx-auto flex flex-col gap-10">
+    <!-- Hero / Welcome -->
+    <section>
+        <h1 class="text-4xl font-black mb-6 tracking-tight">
+            {new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}
+        </h1>
+        
+        {#if authState.currentUser}
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <a href="/favorites" class="group flex items-center bg-white/10 hover:bg-white/20 transition-colors rounded overflow-hidden">
+                    <div class="w-20 h-20 bg-gradient-to-br from-indigo-700 to-purple-400 flex items-center justify-center text-3xl shadow-lg">💜</div>
+                    <span class="px-4 font-bold">Liked Songs</span>
                 </a>
-                
-                <a href="/favorites" style="padding: 8px 15px; background: linear-gradient(135deg, #4a148c, #1e88e5); color: white; text-decoration: none; border-radius: 50px; font-weight: bold; font-size: 0.9em; box-shadow: 0 2px 5px rgba(30, 136, 229, 0.3);">
-                    ❤️ My Favorite Songs
+                <a href="/albums" class="group flex items-center bg-white/10 hover:bg-white/20 transition-colors rounded overflow-hidden">
+                    <div class="w-20 h-20 bg-gradient-to-br from-orange-600 to-red-400 flex items-center justify-center text-3xl shadow-lg">💿</div>
+                    <span class="px-4 font-bold">All Albums</span>
                 </a>
+                {#each myPlaylists.slice(0, 4) as pl}
+                    <a href="/playlist/{pl.id}" class="group flex items-center bg-white/10 hover:bg-white/20 transition-colors rounded overflow-hidden">
+                        <div class="w-20 h-20 bg-bg-highlight flex items-center justify-center text-3xl shadow-lg">🎵</div>
+                        <span class="px-4 font-bold truncate">{pl.name}</span>
+                    </a>
+                {/each}
             </div>
+        {/if}
+    </section>
 
-            <!-- รายการเพลย์ลิสต์ -->
-            {#if myPlaylists.length > 0}
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    {#each myPlaylists as pl}
-                        <!-- 👇 เปลี่ยนเป็น <a> เพื่อลิงก์ไปหน้า Playlist 👇 -->
-                        <a 
-                            href="/playlist/{pl.id}" 
-                            style="background: #3e3e3e; padding: 10px 15px; border-radius: 20px; font-size: 0.9em; color: white; text-decoration: none; display: inline-block; transition: background 0.2s;"
-                            onmouseover={(e) => e.currentTarget.style.background = '#1db954'}
-                            onmouseout={(e) => e.currentTarget.style.background = '#3e3e3e'}
-                        >
-                            🎵 {pl.name}
-                        </a>
-                    {/each}
-                </div>
-            {:else}
-                <p style="color: #aaa; font-size: 0.9em;">ยังไม่มีเพลย์ลิสต์</p>
-            {/if}
-        </section>
-    {/if}
-
-    <!-- 👇 ส่วนฟังล่าสุด (Recently Played) 👇 -->
+    <!-- Recently Played -->
     {#if recentHistory.length > 0}
-        <section style="margin-bottom: 30px;">
-            <h2 style="margin-top: 0; color: #333; font-size: 1.4em;">🕒 ฟังล่าสุด</h2>
+        <section>
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-2xl font-bold hover:underline cursor-pointer">Recently Played</h2>
+                <button class="text-text-muted text-sm font-bold hover:underline">Show all</button>
+            </div>
             
-            <div style="display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: thin;">
-                {#each recentHistory as track}
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                {#each recentHistory.slice(0, 6) as track}
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <div 
                         onclick={() => playTrack(track, recentHistory)}
-                        style="min-width: 160px; max-width: 160px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s;"
-                        onmouseover={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
-                        onmouseout={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        class="bg-bg-elevated hover:bg-bg-highlight p-4 rounded-lg transition-all duration-300 cursor-pointer group shadow-xl"
                     >
-                        <div style="width: 100%; height: 130px; background: linear-gradient(135deg, #1db954, #1976d2); border-radius: 6px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 2em;">
-                            🎵
+                        <div class="relative aspect-square mb-4 shadow-2xl overflow-hidden rounded-md">
+                            <div class="w-full h-full bg-gradient-to-br from-primary to-indigo-900 flex items-center justify-center text-4xl">
+                                🎵
+                            </div>
+                            <button class="absolute bottom-2 right-2 w-12 h-12 bg-primary rounded-full shadow-2xl flex items-center justify-center text-black opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-105 active:scale-95">
+                                <span class="text-2xl ml-1">▶</span>
+                            </button>
                         </div>
-                        <h4 style="margin: 0 0 5px 0; font-size: 1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{track.title}</h4>
-                        <p style="margin: 0; font-size: 0.8em; color: #888;">{track.duration}</p>
+                        <h4 class="font-bold truncate text-sm mb-1">{track.title}</h4>
+                        <p class="text-text-muted text-xs truncate">By {track.artists?.[0]?.name || 'Unknown'}</p>
                     </div>
                 {/each}
             </div>
         </section>
     {/if}
 
-    <!-- 👇 ส่วนค้นหาและกรองเพลงอัจฉริยะ (Smart Search) 👇 -->
-    <section style="background: #fff; padding: 20px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
-        <form onsubmit={handleSearch} style="display: flex; gap: 15px; flex-wrap: wrap;">
-            
-            <!-- ช่องค้นหาหลัก (รองรับ Query) -->
-            <div style="flex: 1; min-width: 250px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555; padding-left: 10px;">🔍 ค้นหา หรือใช้คำสั่ง (เช่น artist:"Linkin Park")</label>
-                <input type="text" bind:value={searchQuery} placeholder='พิมพ์ชื่อเพลง, ศิลปิน หรือ album:"Meteora"' style="width: 100%; padding: 12px 15px; margin-top: 5px; border: 1px solid #e0e0e0; border-radius: 50px; background: #f9f9f9; outline: none; box-sizing: border-box; transition: all 0.2s;" onfocus={(e) => e.currentTarget.style.borderColor = '#1db954'} onblur={(e) => e.currentTarget.style.borderColor = '#e0e0e0'} />
+    <!-- Search & Filters -->
+    <section class="bg-bg-elevated p-6 rounded-xl shadow-2xl border border-white/5">
+        <h2 class="text-xl font-bold mb-6">Search Library</h2>
+        <form onsubmit={handleSearch} class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div class="relative">
+                <input 
+                    type="text" 
+                    bind:value={searchQuery} 
+                    placeholder="Search titles..." 
+                    class="w-full bg-bg-highlight border-none rounded-full py-3 px-12 text-sm focus:ring-2 focus:ring-primary outline-none transition-all"
+                />
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted">🔍</span>
             </div>
             
-            <!-- ค้นหาศิลปิน (Datalist) -->
-            <div style="flex: 1; min-width: 150px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555; padding-left: 10px;">🎤 ศิลปิน</label>
-                <input list="user-artist-list" bind:value={filterArtist} placeholder="พิมพ์ชื่อศิลปิน..." style="width: 100%; padding: 12px 15px; margin-top: 5px; border: 1px solid #e0e0e0; border-radius: 50px; background: #f9f9f9; outline: none; box-sizing: border-box;" />
+            <div class="relative">
+                <input list="user-artist-list" bind:value={filterArtist} placeholder="Artist" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="user-artist-list">
-                    {#each availableArtists as artist}
-                        <option value={artist.name}></option>
-                    {/each}
+                    {#each filteredSearchArtists as artist}<option value={artist.name}></option>{/each}
                 </datalist>
             </div>
 
-            <!-- ค้นหาอัลบั้ม (Datalist) -->
-            <div style="flex: 1; min-width: 150px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555; padding-left: 10px;">💿 อัลบั้ม</label>
-                <input list="user-album-list" bind:value={filterAlbum} placeholder="พิมพ์ชื่ออัลบั้ม..." style="width: 100%; padding: 12px 15px; margin-top: 5px; border: 1px solid #e0e0e0; border-radius: 50px; background: #f9f9f9; outline: none; box-sizing: border-box;" />
+            <div class="relative">
+                <input list="user-album-list" bind:value={filterAlbum} placeholder="Album" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="user-album-list">
-                    {#each availableAlbums as album}
-                        <option value={album.title}></option>
-                    {/each}
+                    {#each filteredSearchAlbums as album}<option value={album.title}></option>{/each}
                 </datalist>
             </div>
 
-            <!-- ค้นหาแนวเพลง (Datalist) -->
-            <div style="flex: 1; min-width: 150px;">
-                <label style="font-size: 0.85em; font-weight: bold; color: #555; padding-left: 10px;">🎸 แนวเพลง</label>
-                <input list="user-genre-list" bind:value={filterGenre} placeholder="พิมพ์แนวเพลง..." style="width: 100%; padding: 12px 15px; margin-top: 5px; border: 1px solid #e0e0e0; border-radius: 50px; background: #f9f9f9; outline: none; box-sizing: border-box;" />
+            <div class="relative">
+                <input list="user-genre-list" bind:value={filterGenre} placeholder="Genre" class="w-full bg-bg-highlight border-none rounded-full py-3 px-4 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <datalist id="user-genre-list">
-                    {#each availableGenres as genre}
-                        <option value={genre.name}></option>
-                    {/each}
+                    {#each filteredSearchGenres as genre}<option value={genre.name}></option>{/each}
                 </datalist>
             </div>
 
-            <!-- ปุ่มค้นหา -->
-            <div style="display: flex; align-items: flex-end;">
-                <button type="submit" disabled={isSearching} style="padding: 12px 30px; background: #1db954; color: white; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; height: 45px; box-shadow: 0 4px 10px rgba(29, 185, 84, 0.3); transition: transform 0.1s;" onmousedown={(e) => e.currentTarget.style.transform = 'scale(0.95)'} onmouseup={(e) => e.currentTarget.style.transform = 'scale(1)'}>
-                    {isSearching ? '⏳...' : 'ค้นหาเลย'}
-                </button>
-            </div>
+            <button type="submit" disabled={isSearching} class="bg-primary hover:bg-primary-hover text-black font-bold py-3 rounded-full transition-all disabled:opacity-50">
+                {isSearching ? 'Searching...' : 'Search'}
+            </button>
         </form>
     </section>
 
-    <!-- 👇 ส่วนคลังเพลง 👇 -->
-    <section style="background: #f4f4f9; padding: 20px; border-radius: 8px;">
-        <h2 style="margin-top: 0; color: #333;">🎵 เพลงทั้งหมด</h2>
+    <!-- Track List -->
+    <section>
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold">Recommended for you</h2>
+        </div>
 
-        {#if isSearching}
-            <p style="color: #555; margin-bottom: 15px;">กำลังโหลดเพลง...</p>
-        {/if}
+        <div class="bg-bg-elevated/50 rounded-xl overflow-hidden border border-white/5">
+            <div class="grid grid-cols-[auto_1fr_auto] gap-4 px-6 py-3 text-xs font-bold text-text-muted border-b border-white/10 uppercase tracking-widest">
+                <div class="w-10">#</div>
+                <div>Title</div>
+                <div class="pr-4">Action</div>
+            </div>
 
-        {#if tracks.length > 0}
-            <div style="display: flex; flex-direction: column; gap: 15px;">
-                {#each tracks as track}
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: background 0.2s;" onmouseover={(e) => e.currentTarget.style.background = '#f9f9f9'} onmouseout={(e) => e.currentTarget.style.background = '#fff'}>
+            <div class="flex flex-col">
+                {#each tracks as track, i}
+                    <div class="group grid grid-cols-[auto_1fr_auto] gap-4 px-6 py-3 items-center hover:bg-white/10 transition-colors rounded-md mx-2 my-1">
+                        <div class="w-10 text-text-muted text-sm font-medium group-hover:hidden">{i + 1}</div>
+                        <button onclick={() => playTrack(track, tracks)} class="w-10 text-white text-sm hidden group-hover:block">▶</button>
                         
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="width: 55px; height: 55px; border-radius: 6px; overflow: hidden; background: linear-gradient(135deg, #e0e0e0, #f5f5f5); flex-shrink: 0; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                        <div class="flex items-center gap-4 min-w-0">
+                            <div class="w-10 h-10 bg-bg-highlight rounded overflow-hidden shrink-0">
                                 {#if track.album?.imgUrl || track.album?.img_url}
-                                    <img src={track.album.imgUrl || track.album.img_url} alt="Cover" style="width: 100%; height: 100%; object-fit: cover;" />
+                                    <img src={track.album.imgUrl || track.album.img_url} alt="" class="w-full h-full object-cover" />
                                 {:else}
-                                    <span style="font-size: 1.8em;">🎵</span>
+                                    <div class="w-full h-full flex items-center justify-center text-xs">🎵</div>
                                 {/if}
                             </div>
-                            
-                            <div>
-                                <h3 style="margin: 0 0 5px 0; font-size: 1.1em; color: #222;">{track.title}</h3>
-                                <p style="margin: 0 0 5px 0; font-size: 0.85em; color: #1db954; font-weight: bold;">
-                                    {track.artists?.map((a:any) => a.name).join(', ') || 'Unknown Artist'}
-                                    {#if track.album} • {track.album.title}{/if}
-                                </p>
-                                <p style="margin: 0; font-size: 0.85em; color: #777;">
-                                    {track.genres?.map((g:any) => g.name).join(', ') || '-'} | ความยาว: {track.duration} | ยอดวิว: {track.viewCount || track.view_count}
-                                </p>
+                            <div class="min-w-0">
+                                <div class="font-bold text-white text-sm truncate">{track.title}</div>
+                                <div class="text-text-muted text-xs truncate hover:underline cursor-pointer">
+                                    {track.artists?.map((a:any) => a.name).join(', ') || 'Unknown'}
+                                </div>
                             </div>
                         </div>
-                        
-                        <div style="display: flex; gap: 10px; align-items: center;">
+
+                        <div class="flex items-center gap-4">
                             <button 
                                 onclick={() => toggleLike(track.id)}
-                                style="background: none; border: none; font-size: 1.5em; cursor: pointer; padding: 5px; transition: transform 0.2s;"
-                                onmousedown={(e) => e.currentTarget.style.transform = 'scale(0.8)'}
-                                onmouseup={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                                title={likedTrackIds.includes(track.id) ? "ยกเลิกถูกใจ" : "ถูกใจ"}
+                                class="text-xl transition-transform hover:scale-120 active:scale-90"
                             >
-                                {likedTrackIds.includes(track.id) ? '❤️' : '🤍'}
+                                {likedTrackIds.includes(track.id) ? '💜' : '🤍'}
                             </button>
 
                             {#if myPlaylists.length > 0}
@@ -361,43 +347,51 @@
                                             e.currentTarget.value = ""; 
                                         }
                                     }}
-                                    style="padding: 8px; border-radius: 4px; border: 1px solid #ccc; background: #f9f9f9; color: #333;"
+                                    class="bg-bg-highlight text-xs border-none rounded-full px-3 py-1 text-text-muted focus:ring-1 focus:ring-primary outline-none"
                                 >
-                                    <option value="" disabled selected>+ เพิ่มลง...</option>
+                                    <option value="" disabled selected>+ Add to</option>
                                     {#each myPlaylists as pl}
                                         <option value={pl.id}>{pl.name}</option>
                                     {/each}
                                 </select>
                             {/if}
-
-                            <button 
-                                onclick={() => playTrack(track, tracks)}
-                                style="padding: 10px 20px; background: #1db954; color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; box-shadow: 0 2px 5px rgba(29, 185, 84, 0.4); transition: background 0.2s;"
-                                onmouseover={(e) => e.currentTarget.style.background = '#1aa34a'}
-                                onmouseout={(e) => e.currentTarget.style.background = '#1db954'}
-                            >
-                                ▶ Play
-                            </button>
+                            
+                            <span class="text-xs text-text-muted w-12 text-right">{track.duration}</span>
                         </div>
                     </div>
                 {/each}
             </div>
-            
-            <div style="display: flex; justify-content: center; gap: 20px; align-items: center; margin-top: 30px;">
-                <button
-                    disabled={currentPage === 1}
-                    onclick={() => loadTracks(currentPage - 1)}
-                    style="padding: 10px 20px; background: {currentPage === 1 ? '#ccc' : '#333'}; color: white; border: none; border-radius: 50px; cursor: pointer;"
-                >&laquo; ก่อนหน้า</button>
-                <span>หน้า {currentPage} / {totalPages}</span>
-                <button
-                    disabled={currentPage === totalPages}
-                    onclick={() => loadTracks(currentPage + 1)}
-                    style="padding: 10px 20px; background: {currentPage === totalPages ? '#ccc' : '#333'}; color: white; border: none; border-radius: 50px; cursor: pointer;"
-                >ถัดไป &raquo;</button>
-            </div>
-        {:else}
-            <p>ยังไม่มีเพลงในระบบ</p>
-        {/if}
+        </div>
+        
+        <!-- Pagination -->
+        <div class="flex justify-center gap-4 items-center mt-10">
+            <button
+                disabled={currentPage === 1}
+                onclick={() => loadTracks(currentPage - 1)}
+                class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
+            >Previous</button>
+            <span class="text-sm font-bold text-text-muted">Page {currentPage} of {totalPages}</span>
+            <button
+                disabled={currentPage === totalPages}
+                onclick={() => loadTracks(currentPage + 1)}
+                class="px-6 py-2 bg-bg-highlight hover:bg-bg-elevated border border-white/10 rounded-full font-bold transition-all disabled:opacity-30"
+            >Next</button>
+        </div>
     </section>
-</main>
+
+    <!-- Create Playlist (Floating at bottom if needed, or inline) -->
+    {#if authState.currentUser}
+        <section class="bg-gradient-to-r from-purple-900/40 to-black p-8 rounded-2xl border border-white/5 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div>
+                <h2 class="text-2xl font-black mb-2">Create your own playlist</h2>
+                <p class="text-text-muted">Curate the perfect mood for your next session.</p>
+            </div>
+            <div class="flex gap-4 w-full md:w-auto">
+                <input type="text" bind:value={newPlaylistName} placeholder="My Awesome Playlist" class="flex-1 md:w-64 bg-bg-highlight border-none rounded-full py-3 px-6 text-sm outline-none" />
+                <button onclick={createPlaylist} disabled={isCreating} class="bg-white text-black px-8 py-3 rounded-full font-bold hover:scale-105 active:scale-100 transition-transform">
+                    {isCreating ? 'Creating...' : 'Create'}
+                </button>
+            </div>
+        </section>
+    {/if}
+</div>

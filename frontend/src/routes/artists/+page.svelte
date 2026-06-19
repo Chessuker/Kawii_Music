@@ -36,7 +36,7 @@
 
     async function toggleFollow(artistId: string) {
         if (!authState.currentUser) {
-            alert('กรุณาเข้าสู่ระบบเพื่อติดตามศิลปิน 🎵');
+            alert('Please log in to follow artists 🎵');
             return;
         }
         try {
@@ -88,68 +88,77 @@
     }
 </script>
 
-<main style="max-width: 1200px; margin: 40px auto; padding: 20px; font-family: sans-serif;">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; margin-bottom: 40px;">
-        <h1 style="color: #333; margin: 0; font-size: 2.5em;">🎤 ศิลปินทั้งหมด</h1>
+<div class="flex flex-col gap-10">
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+            <h1 class="text-5xl font-black tracking-tight mb-2">Artists</h1>
+            <p class="text-text-muted font-medium">Discover your next favorite creator</p>
+        </div>
         
-        <form onsubmit={handleSearch} style="display: flex; gap: 10px; width: 100%; max-width: 450px;">
+        <form onsubmit={handleSearch} class="w-full max-w-md relative group">
+            <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted transition-colors group-focus-within:text-primary">🔍</span>
             <input 
                 type="text" 
                 bind:value={searchQuery} 
                 oninput={handleLiveSearch} 
-                placeholder="🔍 ค้นหาชื่อศิลปิน..." 
-                style="flex: 1; padding: 12px 20px; border: 1px solid #ccc; border-radius: 50px; outline: none; font-size: 1em; transition: border 0.2s;" 
-                onfocus={(e) => e.currentTarget.style.borderColor = '#1db954'}
-                onblur={(e) => e.currentTarget.style.borderColor = '#ccc'}
+                placeholder="Search artists..." 
+                class="w-full bg-bg-elevated border-none rounded-full py-3.5 pl-12 pr-6 text-sm focus:ring-2 focus:ring-primary outline-none transition-all shadow-xl"
             />
         </form>
     </div>
 
     {#if isLoading}
-        <div style="text-align: center; padding: 50px; color: #888;">
-            <p style="font-size: 1.2em;">⏳ กำลังโหลดศิลปิน...</p>
+        <div class="flex justify-center items-center h-64">
+            <p class="text-text-muted animate-pulse font-bold text-xl">Loading artists...</p>
         </div>
     {:else if artists.length === 0}
-        <div style="text-align: center; padding: 50px; color: #888; background: #fff; border-radius: 12px; border: 1px dashed #ccc;">
-            <span style="font-size: 4em;">👻</span>
-            <p style="font-size: 1.2em; margin-top: 15px;">ไม่พบศิลปินที่คุณค้นหา</p>
+        <div class="flex flex-col items-center justify-center py-20 text-center gap-6 bg-bg-elevated/30 rounded-3xl border-2 border-dashed border-white/10">
+            <span class="text-7xl opacity-50">👻</span>
+            <div>
+                <h3 class="text-2xl font-bold mb-2">No artists found</h3>
+                <p class="text-text-muted">Try a different search term.</p>
+            </div>
         </div>
     {:else}
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 30px;">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-8">
             {#each artists as artist}
-                <div style="background: #fff; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #eee; transition: transform 0.2s;" onmouseover={(e) => e.currentTarget.style.transform = 'translateY(-5px)'} onmouseout={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
-                    <a href={`/artists/${artist.id}`} style="text-decoration: none; color: inherit; display: block;">
-                        <div style="width: 100px; height: 100px; background: linear-gradient(135deg, #1db954, #1976d2); border-radius: 50%; margin: 0 auto 15px auto; display: flex; align-items: center; justify-content: center; color: white; font-size: 2.5em; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                            {artist.name.charAt(0).toUpperCase()}
+                <div class="group flex flex-col items-center bg-bg-elevated/40 hover:bg-bg-highlight p-6 rounded-2xl transition-all duration-300 shadow-xl border border-white/5">
+                    <a href={`/artists/${artist.id}`} class="flex flex-col items-center gap-4 w-full">
+                        <div class="relative w-32 h-32 md:w-40 md:h-40 shrink-0">
+                            <div class="w-full h-full bg-gradient-to-br from-primary to-indigo-900 rounded-full flex items-center justify-center text-5xl font-black shadow-2xl group-hover:scale-105 transition-transform duration-500">
+                                {artist.name.charAt(0).toUpperCase()}
+                            </div>
+                            <button class="absolute bottom-1 right-1 w-10 h-10 bg-primary rounded-full shadow-2xl flex items-center justify-center text-black opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-110 active:scale-95 z-10">
+                                <span class="text-xl ml-0.5">▶</span>
+                            </button>
                         </div>
                         
-                        <h3 style="margin: 0 0 15px 0; font-size: 1.1em; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title={artist.name}>
-                            {artist.name}
-                        </h3>
+                        <div class="text-center w-full min-w-0">
+                            <h3 class="font-black text-lg truncate mb-1 group-hover:text-primary transition-colors">{artist.name}</h3>
+                            <p class="text-text-muted text-xs uppercase tracking-widest font-bold">Artist</p>
+                        </div>
                     </a>
                     
                     <button 
                         onclick={() => toggleFollow(artist.id)}
-                        style="width: 100%; padding: 10px 0; border-radius: 50px; font-weight: bold; cursor: pointer; transition: all 0.2s; border: 2px solid #1db954; font-size: 0.9em; {followedArtistIds.includes(artist.id) ? 'background: #1db954; color: white;' : 'background: transparent; color: #1db954;'}"
+                        class="w-full mt-6 py-2 rounded-full font-black text-xs transition-all border-2 {followedArtistIds.includes(artist.id) ? 'bg-primary border-primary text-black' : 'bg-transparent border-white/20 text-white hover:border-primary hover:text-primary'}"
                     >
-                        {followedArtistIds.includes(artist.id) ? '✓ Following' : '+ Follow'}
+                        {followedArtistIds.includes(artist.id) ? 'FOLLOWING' : 'FOLLOW'}
                     </button>
                 </div>
             {/each}
         </div>
 
         {#if hasMore}
-            <div style="text-align: center; margin-top: 40px; margin-bottom: 60px;">
+            <div class="flex justify-center mt-12 mb-10">
                 <button 
                     onclick={() => loadArtists(currentPage + 1)} 
                     disabled={isLoadingMore}
-                    style="padding: 12px 30px; background: #333; color: white; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; transition: background 0.2s;"
-                    onmouseover={(e) => e.currentTarget.style.background = '#555'} 
-                    onmouseout={(e) => e.currentTarget.style.background = '#333'}
+                    class="bg-white text-black px-10 py-3 rounded-full font-black hover:scale-105 active:scale-95 transition-all shadow-xl disabled:opacity-50"
                 >
-                    {isLoadingMore ? '⏳ กำลังโหลด...' : '👇 โหลดศิลปินเพิ่มเติม'}
+                    {isLoadingMore ? 'Loading...' : 'Load More'}
                 </button>
             </div>
         {/if}
     {/if}
-</main>
+</div>
